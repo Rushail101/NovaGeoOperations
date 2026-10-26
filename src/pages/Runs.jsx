@@ -1,0 +1,52 @@
+import { DataPage, useRows, opts, fmtKg, fmtDateTime, toLocalInput } from '../lib.jsx'
+
+export default function Runs() {
+  const mills = useRows('mills', { order: 'name', asc: true })
+  const grades = useRows('grades', { order: 'name', asc: true })
+  const hours = useRows('mill_total_hours')
+  const millName = Object.fromEntries(mills.rows.map((m) => [m.id, m.name]))
+
+  const fields = [
+    { name: 'mill_id', label: 'Mill', type: 'select', required: true, options: opts(mills.rows) },
+    { name: 'started_at', label: 'Started', type: 'datetime-local', required: true },
+    { name: 'ended_at', label: 'Ended (leave blank if running)', type: 'datetime-local' },
+    { name: 'grade_id', label: 'Grade', type: 'select', options: opts(grades.rows) },
+    { name: 'feed_kg', label: 'Feed (kg)', type: 'number' },
+    { name: 'output_kg', label: 'Output (kg)', type: 'number' },
+    { name: 'operator', label: 'Operator' },
+    { name: 'notes', label: 'Notes', type: 'textarea' },
+  ]
+
+  const extra = (
+    <div className="stats">
+      {hours.rows.map((h) => (
+        <div className="stat" key={h.mill_id}>
+          <div className="label">{millName[h.mill_id] || 'Mill'} total run-hours</div>
+          <div className="value">{Number(h.total_hours).toFixed(1)} h</div>
+        </div>
+      ))}
+    </div>
+  )
+
+  return (
+    <DataPage
+      title="Mill runs"
+      table="mill_runs"
+      select="*, mills(name), grades(name)"
+      order="started_at"
+      fields={fields}
+      defaults={{ started_at: toLocalInput() }}
+      extra={extra}
+      columns={[
+        { label: 'Mill', render: (r) => r.mills?.name },
+        { label: 'Started', render: (r) => fmtDateTime(r.started_at) },
+        { label: 'Hours', render: (r) => (r.hours == null ? 'Running' : r.hours) },
+        { label: 'Grade', render: (r) => r.grades?.name },
+        { label: 'Feed', render: (r) => fmtKg(r.feed_kg) },
+        { label: 'Output', render: (r) => fmtKg(r.output_kg) },
+        { label: 'Yield', render: (r) => (r.feed_kg > 0 && r.output_kg != null ? ((r.output_kg / r.feed_kg) * 100).toFixed(1) + '%' : '-') },
+        { label: 'Operator', key: 'operator' },
+      ]}
+    />
+  )
+}
