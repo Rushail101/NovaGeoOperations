@@ -23,3 +23,12 @@ Permissions are enforced in the database (row level security), the tabs just fol
 ## Bags and QR
 Bag numbers look like `NG-261027-0042` (IST date + running number). The QR holds only the bag number.
 Phone camera scanning needs https (Render is). A USB barcode scanner also works: click the bag box and scan.
+
+## Reports and PDFs
+Reports tab: pick a date range, then View or download a PDF for production, weighments, dispatch, stock, orders,
+maintenance and resin lining. Every list also has a PDF button for exactly what is on screen, and each batch has a
+Certificate button (quality certificate with lab values and bag list).
+
+## Look and feel
+Works on phones (hamburger menu, tables turn into cards, add/edit opens as a bottom sheet). Light and dark themes,
+remembered per device. Fonts are bundled, no Google request.

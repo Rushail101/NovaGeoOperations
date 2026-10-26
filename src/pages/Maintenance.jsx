@@ -70,7 +70,7 @@ function DueTab() {
       <h2>What is due</h2>
       {rows.length === 0 && <p className="muted">Add assets and schedules first.</p>}
       <div className="tablewrap">
-        <table>
+        <table className="stack">
           <thead>
             <tr>
               <th>Asset</th>
@@ -83,10 +83,10 @@ function DueTab() {
           <tbody>
             {rows.map((s) => (
               <tr key={s.id}>
-                <td>{s.asset?.name}</td>
-                <td>{s.task}</td>
-                <td>{fmtDateTime(s.last_done_at)}</td>
-                <td>
+                <td data-label="Asset">{s.asset?.name}</td>
+                <td data-label="Task">{s.task}</td>
+                <td data-label="Last done">{fmtDateTime(s.last_done_at)}</td>
+                <td data-label="Status">
                   <Badge tone={tone[s.state]}>{s.state}</Badge> <span className="muted">{s.detail}</span>
                 </td>
                 <td className="actions">

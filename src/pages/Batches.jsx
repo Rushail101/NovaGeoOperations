@@ -1,6 +1,29 @@
 import { DataPage, useRows, opts, fmtDate, fmtDateTime } from '../lib.jsx'
+import { supabase } from '../supabase.js'
+import { useAuth } from '../auth.jsx'
+
+async function certificate(b, user) {
+  const { data: bags, error } = await supabase.from('bags').select('bag_no, bag_type, weight_kg').eq('batch_id', b.id).neq('status', 'rejected').order('bag_no').limit(2000)
+  if (error) return alert(error.message)
+  const { exportReport } = await import('../pdf.js')
+  const kg = (x) => Number(x).toLocaleString('en-IN', { maximumFractionDigits: 2 })
+  await exportReport(
+    {
+      title: 'Batch quality certificate',
+      subtitle: `Batch ${b.batch_no}`,
+      summary: [
+        ['Product', b.grades?.name || '-'], ['Production date', fmtDate(b.produced_on)], ['Mill', b.mills?.name || '-'], ['Quartz lot', b.inbound_lot_no || '-'],
+        ['SiO2', b.sio2_pct != null ? `${b.sio2_pct} %` : '-'], ['Fe2O3', b.fe2o3_pct != null ? `${b.fe2o3_pct} %` : '-'], ['Moisture', b.moisture_pct != null ? `${b.moisture_pct} %` : '-'],
+        ['Packed', `${bags.length} bags, ${kg(bags.reduce((a, x) => a + Number(x.weight_kg), 0))} kg`],
+      ],
+      sections: [{ heading: 'Bags in this batch', columns: [{ header: 'Bag no.' }, { header: 'Type' }, { header: 'Weight (kg)', align: 'right' }], rows: bags.map((x) => [x.bag_no, x.bag_type, kg(x.weight_kg)]) }],
+    },
+    { user, filename: `certificate-${b.batch_no}` }
+  )
+}
 
 export default function Batches() {
+  const { name } = useAuth()
   const mills = useRows('mills', { order: 'name', asc: true })
   const grades = useRows('grades', { order: 'name', asc: true })
   const runs = useRows('mill_runs', { select: 'id, started_at, mills(name)', order: 'started_at', limit: 100 })
@@ -34,6 +57,7 @@ export default function Batches() {
       table="batches"
       select="*, mills(name), grades(name)"
       fields={fields}
+      rowActions={(r) => <button className="link" onClick={() => certificate(r, name)}>Certificate</button>}
       defaults={{ produced_on: new Date().toISOString().slice(0, 10) }}
       extra={<p className="muted">A batch is one production lot with its lab results. The batch number is generated automatically. Pack its bags on the Bags tab.</p>}
       columns={[

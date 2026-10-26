@@ -30,16 +30,16 @@ export default function Audit() {
       {error && <div className="error">{error}</div>}
       {loading ? <p className="muted">Loading...</p> : (
         <div className="tablewrap">
-          <table>
+          <table className="stack">
             <thead><tr><th>When</th><th>Who</th><th>Table</th><th>Action</th><th>Change</th></tr></thead>
             <tbody>
               {shown.map((r) => (
                 <tr key={r.id}>
-                  <td>{fmtDateTime(r.at)}</td>
-                  <td>{r.user_name || 'system'}</td>
-                  <td>{r.table_name}</td>
-                  <td><Badge tone={tone[r.action]}>{r.action.toLowerCase()}</Badge></td>
-                  <td className="wrap">{summarize(r)}</td>
+                  <td data-label="When">{fmtDateTime(r.at)}</td>
+                  <td data-label="Who">{r.user_name || 'system'}</td>
+                  <td data-label="Table">{r.table_name}</td>
+                  <td data-label="Action"><Badge tone={tone[r.action]}>{r.action.toLowerCase()}</Badge></td>
+                  <td className="wrap" data-label="Change">{summarize(r)}</td>
                 </tr>
               ))}
             </tbody>

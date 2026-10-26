@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { X, FileDown, Plus } from 'lucide-react'
 import { supabase } from './supabase.js'
 import { useAuth } from './auth.jsx'
 import { can } from './perms.js'
@@ -42,7 +43,52 @@ export function useRows(table, { select = '*', order, asc = false, limit = 500, 
 export const opts = (rows, label = 'name') =>
   rows.map((r) => ({ value: r.id, label: typeof label === 'function' ? label(r) : r[label] }))
 
-export function Form({ fields, initial = {}, onSubmit, onCancel, submitLabel = 'Save' }) {
+export function Modal({ title, onClose, children }) {
+  useEffect(() => {
+    const onKey = (e) => e.key === 'Escape' && onClose()
+    document.addEventListener('keydown', onKey)
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      document.body.style.overflow = prev
+    }
+  }, [onClose])
+  return (
+    <div className="modal-back" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" role="dialog" aria-label={title}>
+        <div className="modal-head">
+          <h3>{title}</h3>
+          <button className="icon-btn" onClick={onClose} aria-label="Close"><X size={20} /></button>
+        </div>
+        <div className="modal-body">{children}</div>
+      </div>
+    </div>
+  )
+}
+
+// Plain text of a React node (used to put table cells into PDFs)
+export function textOf(n) {
+  if (n == null || n === false || n === true) return ''
+  if (typeof n === 'string' || typeof n === 'number') return String(n)
+  if (Array.isArray(n)) return n.map(textOf).join('')
+  return textOf(n.props?.children)
+}
+
+const NUMERIC = /^-?[\d,.]+( ?(kg|%|h|mm|kWh\/t))?$/
+
+export async function exportList(title, columns, rows, user) {
+  const { exportReport } = await import('./pdf.js')
+  const cols = columns.map((c) => ({ header: c.label }))
+  const body = rows.map((r) => columns.map((c) => (c.render ? textOf(c.render(r)) : r[c.key] ?? '')).map((x) => (x === '' ? '-' : String(x))))
+  cols.forEach((c, i) => {
+    const vals = body.map((b) => b[i]).filter((x) => x !== '-')
+    if (vals.length && vals.every((x) => NUMERIC.test(x))) c.align = 'right'
+  })
+  await exportReport({ title, subtitle: `${rows.length} records`, sections: [{ columns: cols, rows: body }] }, { user })
+}
+
+export function Form({ fields, initial = {}, onSubmit, onCancel, submitLabel = 'Save', grid = false }) {
   const [v, setV] = useState(initial)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
@@ -61,11 +107,11 @@ export function Form({ fields, initial = {}, onSubmit, onCancel, submitLabel = '
   }
 
   return (
-    <form className="form" onSubmit={submit}>
+    <form className={"form" + (grid ? " grid2" : "")} onSubmit={submit}>
       {fields
         .filter((f) => !f.showIf || f.showIf(v))
         .map((f) => (
-          <label key={f.name} className={f.type === 'checkbox' ? 'check' : ''}>
+          <label key={f.name} className={f.type === 'checkbox' ? 'check' : f.type === 'textarea' ? 'wide' : ''}>
             <span>{f.label}</span>
             {f.type === 'select' ? (
               <select
@@ -152,7 +198,7 @@ export function DataPage({
   rowActions,
   eq,
 }) {
-  const { role } = useAuth()
+  const { role, name } = useAuth()
   const pt = permTable || table
   const allowAdd = addable && can(role, pt, 'insert')
   const allowEdit = can(role, pt, 'update')
@@ -195,31 +241,33 @@ export function DataPage({
     <section>
       <div className="head">
         <h2>{title}</h2>
-        {!editing && allowAdd && (
-          <button className="btn primary" onClick={() => setEditing('new')}>
-            + Add
-          </button>
-        )}
+        <div className="headbtns">
+          {rows.length > 0 && (
+            <button className="btn" onClick={() => exportList(title, columns, rows, name)}>
+              <FileDown size={17} /> PDF
+            </button>
+          )}
+          {allowAdd && (
+            <button className="btn primary" onClick={() => setEditing('new')}>
+              <Plus size={17} /> Add
+            </button>
+          )}
+        </div>
       </div>
       {error && <div className="error">{error}</div>}
       {extra}
       {editing && (
-        <div className="card">
-          <Form
-            fields={fields}
-            initial={initial}
-            onSubmit={save}
-            onCancel={() => setEditing(null)}
-          />
-        </div>
+        <Modal title={editing === 'new' ? `Add to ${title.toLowerCase()}` : `Edit ${title.toLowerCase()}`} onClose={() => setEditing(null)}>
+          <Form grid fields={fields} initial={initial} onSubmit={save} onCancel={() => setEditing(null)} />
+        </Modal>
       )}
       {loading ? (
         <p className="muted">Loading...</p>
       ) : rows.length === 0 ? (
-        <p className="muted">Nothing here yet.</p>
+        <div className="empty">{allowAdd ? 'Nothing here yet. Use Add to create the first record.' : 'Nothing here yet.'}</div>
       ) : (
         <div className="tablewrap">
-          <table>
+          <table className="stack">
             <thead>
               <tr>
                 {columns.map((c) => (
@@ -232,7 +280,7 @@ export function DataPage({
               {rows.map((r) => (
                 <tr key={r.id}>
                   {columns.map((c) => (
-                    <td key={c.label}>{c.render ? c.render(r) : r[c.key] ?? '-'}</td>
+                    <td key={c.label} data-label={c.label}>{c.render ? c.render(r) : r[c.key] ?? '-'}</td>
                   ))}
                   <td className="actions">
                     {rowActions && rowActions(r, reload)}
@@ -243,7 +291,7 @@ export function DataPage({
                     )}
                     {allowDelete && (
                       <button className="link danger" onClick={() => remove(r)}>
-                        Del
+                        Delete
                       </button>
                     )}
                   </td>

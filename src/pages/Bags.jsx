@@ -184,7 +184,7 @@ export default function Bags() {
       {error && <div className="error">{error}</div>}
       {loading ? <p className="muted">Loading...</p> : (
         <div className="tablewrap">
-          <table>
+          <table className="stack">
             <thead><tr>
               <th><input type="checkbox" onChange={(e) => setSel(Object.fromEntries(shown.map((b) => [b.id, e.target.checked])))} /></th>
               <th>Bag no.</th><th>Type</th><th>Weight</th><th>Batch</th><th>Grade</th><th>Packed</th><th>By</th><th>Status</th><th>Order</th><th />
@@ -192,16 +192,16 @@ export default function Bags() {
             <tbody>
               {shown.map((b) => (
                 <tr key={b.id}>
-                  <td><input type="checkbox" checked={!!sel[b.id]} onChange={(e) => setSel({ ...sel, [b.id]: e.target.checked })} /></td>
-                  <td><strong>{b.bag_no}</strong></td>
-                  <td>{b.bag_type}</td>
-                  <td>{fmtKg(b.weight_kg)}</td>
-                  <td>{b.batches?.batch_no}</td>
-                  <td>{b.batches?.grades?.name}</td>
-                  <td>{fmtDateTime(b.packed_at)}</td>
-                  <td>{b.packer?.full_name || b.packer?.username || '-'}</td>
-                  <td><Badge tone={tone[b.status]}>{b.status.replace('_', ' ')}</Badge></td>
-                  <td>{b.orders?.order_no || '-'}</td>
+                  <td data-label=""><input type="checkbox" checked={!!sel[b.id]} onChange={(e) => setSel({ ...sel, [b.id]: e.target.checked })} /></td>
+                  <td data-label="Bag no."><strong>{b.bag_no}</strong></td>
+                  <td data-label="Type">{b.bag_type}</td>
+                  <td data-label="Weight">{fmtKg(b.weight_kg)}</td>
+                  <td data-label="Batch">{b.batches?.batch_no}</td>
+                  <td data-label="Grade">{b.batches?.grades?.name}</td>
+                  <td data-label="Packed">{fmtDateTime(b.packed_at)}</td>
+                  <td data-label="By">{b.packer?.full_name || b.packer?.username || '-'}</td>
+                  <td data-label="Status"><Badge tone={tone[b.status]}>{b.status.replace('_', ' ')}</Badge></td>
+                  <td data-label="Order">{b.orders?.order_no || '-'}</td>
                   <td className="actions">{b.status === 'in_stock' && can(role, 'bags', 'update') && <button className="link danger" onClick={() => reject(b)}>Reject</button>}</td>
                 </tr>
               ))}
