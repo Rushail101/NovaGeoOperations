@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from './supabase.js'
+import { useAuth } from './auth.jsx'
+import { can } from './perms.js'
 
 export const fmtKg = (n) =>
   n == null ? '-' : Number(n).toLocaleString('en-IN', { maximumFractionDigits: 2 }) + ' kg'
@@ -145,8 +147,16 @@ export function DataPage({
   afterSave,
   extra,
   canDelete = true,
+  addable = true,
+  permTable,
+  rowActions,
   eq,
 }) {
+  const { role } = useAuth()
+  const pt = permTable || table
+  const allowAdd = addable && can(role, pt, 'insert')
+  const allowEdit = can(role, pt, 'update')
+  const allowDelete = canDelete && can(role, pt, 'delete')
   const { rows, loading, error, reload } = useRows(table, { select, order, asc, eq })
   const [editing, setEditing] = useState(null) // null | 'new' | row
 
@@ -185,7 +195,7 @@ export function DataPage({
     <section>
       <div className="head">
         <h2>{title}</h2>
-        {!editing && (
+        {!editing && allowAdd && (
           <button className="btn primary" onClick={() => setEditing('new')}>
             + Add
           </button>
@@ -225,10 +235,13 @@ export function DataPage({
                     <td key={c.label}>{c.render ? c.render(r) : r[c.key] ?? '-'}</td>
                   ))}
                   <td className="actions">
-                    <button className="link" onClick={() => setEditing(r)}>
-                      Edit
-                    </button>
-                    {canDelete && (
+                    {rowActions && rowActions(r, reload)}
+                    {allowEdit && (
+                      <button className="link" onClick={() => setEditing(r)}>
+                        Edit
+                      </button>
+                    )}
+                    {allowDelete && (
                       <button className="link danger" onClick={() => remove(r)}>
                         Del
                       </button>

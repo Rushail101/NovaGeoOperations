@@ -4,6 +4,8 @@ export default function Runs() {
   const mills = useRows('mills', { order: 'name', asc: true })
   const grades = useRows('grades', { order: 'name', asc: true })
   const hours = useRows('mill_total_hours')
+  const orders = useRows('orders', { select: 'id, order_no, status, customers(name)', order: 'created_at' })
+  const openOrders = orders.rows.filter((o) => !['dispatched', 'cancelled'].includes(o.status))
   const millName = Object.fromEntries(mills.rows.map((m) => [m.id, m.name]))
 
   const fields = [
@@ -11,6 +13,9 @@ export default function Runs() {
     { name: 'started_at', label: 'Started', type: 'datetime-local', required: true },
     { name: 'ended_at', label: 'Ended (leave blank if running)', type: 'datetime-local' },
     { name: 'grade_id', label: 'Grade', type: 'select', options: opts(grades.rows) },
+    { name: 'order_id', label: 'For order (optional)', type: 'select', options: opts(openOrders, (o) => `${o.order_no} - ${o.customers?.name ?? ''}`) },
+    { name: 'kwh_start', label: 'Energy meter at start (kWh)', type: 'number' },
+    { name: 'kwh_end', label: 'Energy meter at end (kWh)', type: 'number' },
     { name: 'feed_kg', label: 'Feed (kg)', type: 'number' },
     { name: 'output_kg', label: 'Output (kg)', type: 'number' },
     { name: 'operator', label: 'Operator' },
@@ -32,7 +37,7 @@ export default function Runs() {
     <DataPage
       title="Mill runs"
       table="mill_runs"
-      select="*, mills(name), grades(name)"
+      select="*, mills(name), grades(name), orders(order_no)"
       order="started_at"
       fields={fields}
       defaults={{ started_at: toLocalInput() }}
@@ -45,6 +50,8 @@ export default function Runs() {
         { label: 'Feed', render: (r) => fmtKg(r.feed_kg) },
         { label: 'Output', render: (r) => fmtKg(r.output_kg) },
         { label: 'Yield', render: (r) => (r.feed_kg > 0 && r.output_kg != null ? ((r.output_kg / r.feed_kg) * 100).toFixed(1) + '%' : '-') },
+        { label: 'kWh/t', render: (r) => (r.kwh_used != null && r.output_kg > 0 ? (r.kwh_used / (r.output_kg / 1000)).toFixed(0) : '-') },
+        { label: 'Order', render: (r) => r.orders?.order_no || '-' },
         { label: 'Operator', key: 'operator' },
       ]}
     />

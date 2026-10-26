@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { DataPage, useRows, opts, fmtKg, fmtDateTime, toLocalInput, Badge } from '../lib.jsx'
-import { supabase } from '../supabase.js'
 
 const types = [
   { value: 'inbound', label: 'Inbound quartz' },
@@ -39,14 +38,6 @@ export default function Weighments() {
     { name: 'notes', label: 'Notes', type: 'textarea' },
   ]
 
-  async function afterSave(row) {
-    if (row.type !== 'dispatch' || !row.order_id) return
-    const { data } = await supabase.from('order_progress').select('pending_kg').eq('id', row.order_id).single()
-    if (!data) return
-    const status = Number(data.pending_kg) <= 0 ? 'dispatched' : 'partially_dispatched'
-    await supabase.from('orders').update({ status }).eq('id', row.order_id)
-  }
-
   const extra = (
     <div className="tabs">
       {[{ value: '', label: 'All' }, ...types].map((t) => (
@@ -63,11 +54,10 @@ export default function Weighments() {
       eq={filter ? ['type', filter] : undefined}
       title="Weighments"
       table="weighments"
-      select="*, suppliers(name), mills(name), orders(order_no), grades(name)"
+      select="*, suppliers(name), mills(name), orders(order_no), grades(name), creator:profiles!created_by(full_name, username)"
       order="weighed_at"
       fields={fields}
       defaults={{ type: filter || 'inbound', weighed_at: toLocalInput() }}
-      afterSave={afterSave}
       extra={extra}
       columns={[
         { label: 'When', render: (r) => fmtDateTime(r.weighed_at) },
@@ -76,6 +66,7 @@ export default function Weighments() {
         { label: 'Gross', render: (r) => fmtKg(r.gross_kg) },
         { label: 'Tare', render: (r) => fmtKg(r.tare_kg) },
         { label: 'Net', render: (r) => <strong>{fmtKg(r.net_kg)}</strong> },
+        { label: 'By', render: (r) => r.creator?.full_name || r.creator?.username || '-' },
         { label: 'Ref', render: (r) => r.orders?.order_no || r.mills?.name || r.suppliers?.name || r.lot_no || '-' },
       ]}
     />

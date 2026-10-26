@@ -7,11 +7,13 @@ const configs = {
     columns: [
       { label: 'Name', key: 'name' },
       { label: 'Lining', key: 'lining_type' },
+      { label: 'Min safe lining (mm)', render: (r) => r.min_safe_thickness_mm ?? '-' },
       { label: 'Active', render: (r) => (r.active ? 'Yes' : 'No') },
     ],
     fields: [
       { name: 'name', label: 'Name', required: true },
       { name: 'lining_type', label: 'Lining type' },
+      { name: 'min_safe_thickness_mm', label: 'Minimum safe lining thickness (mm) - used to project relining date', type: 'number' },
       { name: 'active', label: 'Active', type: 'checkbox' },
     ],
     defaults: { lining_type: 'Resin + road metal', active: true },
