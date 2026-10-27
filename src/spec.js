@@ -11,10 +11,13 @@ export const specFormFields = (prefix = '') =>
 
 const has = (v) => v !== null && v !== undefined && v !== ''
 
-// Limits that apply to an order: the order's own value if set, otherwise the grade's.
-export function effectiveSpec(order, grade) {
+// Limits that apply: the order's own value if set, otherwise the mesh size's, otherwise the grade's.
+export function effectiveSpec(order, grade, mesh) {
   const out = {}
-  for (const f of SPEC_FIELDS) out[f.key] = has(order?.[f.col]) ? Number(order[f.col]) : has(grade?.[f.col]) ? Number(grade[f.col]) : null
+  for (const f of SPEC_FIELDS) {
+    const src = [order, mesh, grade].find((x) => has(x?.[f.col]))
+    out[f.key] = src ? Number(src[f.col]) : null
+  }
   return out
 }
 

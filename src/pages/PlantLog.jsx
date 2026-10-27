@@ -111,9 +111,59 @@ function DustTab() {
   )
 }
 
+const LOCS = [
+  { value: 'raw_yard', label: 'Raw quartz in yard' },
+  { value: 'unpacked_powder', label: 'Powder not yet packed' },
+  { value: 'packed_bags', label: 'Packed bags in stock' },
+]
+const locLabel = Object.fromEntries(LOCS.map((l) => [l.value, l.label]))
+
+function CountTab() {
+  const st = useRows('stock_summary').rows[0]
+  const sys = st
+    ? {
+        raw_yard: Number(st.inbound_kg) - Number(st.fed_kg),
+        unpacked_powder: Number(st.produced_kg) - Number(st.packed_kg) - (Number(st.dispatched_kg) - Number(st.dispatched_bags_kg)),
+        packed_bags: Number(st.packed_in_stock_kg),
+      }
+    : {}
+  return (
+    <DataPage
+      title="Physical stock count"
+      table="stock_counts"
+      order="counted_on"
+      dateField="counted_on"
+      defaults={{ counted_on: todayIso() }}
+      extra={
+        <>
+          <p className="muted">Measure what is really in the yard or store, enter it here, and the app records the difference from what the system thinks you have. Do it monthly.</p>
+          <div className="stats">
+            {LOCS.map((l) => <div className="stat" key={l.value}><div className="label">System shows: {l.label}</div><div className="value">{fmtKg(sys[l.value])}</div></div>)}
+          </div>
+        </>
+      }
+      fields={[
+        { name: 'counted_on', label: 'Date', type: 'date', required: true },
+        { name: 'location', label: 'What you counted', type: 'select', required: true, options: LOCS, onPick: (val) => ({ system_kg: sys[val] != null ? String(Math.round(sys[val] * 100) / 100) : '' }) },
+        { name: 'system_kg', label: 'System shows (kg)', type: 'number', required: true, readOnly: true, hint: 'Filled in from the app when you choose what you counted.' },
+        { name: 'counted_kg', label: 'Actually counted (kg)', type: 'number', required: true },
+        { name: 'notes', label: 'Notes', type: 'textarea' },
+      ]}
+      columns={[
+        { label: 'Date', render: (r) => fmtDate(r.counted_on) },
+        { label: 'Counted', render: (r) => locLabel[r.location] },
+        { label: 'System', render: (r) => fmtKg(r.system_kg) },
+        { label: 'Actual', render: (r) => fmtKg(r.counted_kg) },
+        { label: 'Difference', render: (r) => <Badge tone={Math.abs(r.diff_kg) < 0.01 * Number(r.system_kg || 1) ? 'green' : 'red'}>{r.diff_kg > 0 ? '+' : ''}{fmtNum(r.diff_kg)} kg</Badge> },
+        { label: 'Notes', key: 'notes' },
+      ]}
+    />
+  )
+}
+
 export default function PlantLog() {
   const [tab, setTab] = useState('Downtime')
-  const tabs = { Downtime: DowntimeTab, 'Handover notes': NotesTab, 'Dust & fines': DustTab }
+  const tabs = { Downtime: DowntimeTab, 'Handover notes': NotesTab, 'Dust & fines': DustTab, 'Stock count': CountTab }
   const Tab = tabs[tab]
   return (
     <div>

@@ -6,6 +6,7 @@ Operations-only ERP for the ball mill plant: orders, weighments, mill runs, batc
 1. `schema.sql` (only on a brand-new project)
 2. `migration_v2.sql` (roles, audit trail, batches, bags, dispatch)
 3. `migration_v3.sql` (spec checks, invoice/e-way, spares, plant log, offline helpers, photos bucket)
+4. `migration_v4.sql` (mesh sizes, inbound/outbound paperwork, licences, vehicles, stock counts)
 
 Each migration can be re-run safely. Then in Authentication > Providers > Email turn **off** "Confirm email". The first person to sign up becomes **admin**; give the admin a long password (12+ characters), not a short PIN.
 
@@ -31,3 +32,14 @@ Test locally: `npm run test:tools`. Run by hand: Actions tab > pick workflow > R
 
 ## 6. Roles
 admin, supervisor, weighbridge, operator, maintenance, viewer. Dispatch weighments are made only through the Dispatch page (admin, supervisor, weighbridge). QC hold is set by admin or supervisor and blocks dispatch of that batch.
+
+## 7. Mesh sizes
+Masters > Grades holds the product family (for example "A grade"); Masters > Mesh sizes holds its sizes (200, 325, 500...). Orders, mill runs and batches choose the grade, then the mesh. Limits can be set per grade, per mesh, or per order (order wins, then mesh, then grade). Dispatch warns if a bag's mesh differs from the order's.
+If your grades are currently named like "200 mesh A grade", rename them to "A grade": the migration turned the old mesh value into a mesh row, so the label would otherwise read "200 mesh A grade - 200 mesh".
+
+## 8. Paperwork
+- Inbound weighment: supplier invoice no./date, transit permit no./quantity/validity, e-way bill, and uploads (PDF or photo, up to 8 MB). The app flags a load when net weight differs from the permit quantity by more than the limit (Masters > Settings, admin only, default 3%) or when the permit had expired.
+- Outbound: invoice and e-way numbers at dispatch, files attached from the Dispatch list ("Attach files") or Weighments > Papers.
+- Weighments missing papers show on the dashboard and in the Compliance report; Telegram flags them a day after weighing.
+- Masters > Suppliers holds the mining lease number and expiry, Masters > Licences the plant approvals; both alert at 30 days, 7 days and when expired. Masters > Vehicles remembers usual tare weights. Plant log > Stock count records physical counts against system stock.
+Uploads need signal; the numbers and weights can be saved offline and files attached later.

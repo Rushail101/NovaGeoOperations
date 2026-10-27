@@ -201,7 +201,7 @@ export async function takeBagNumbers(n) {
 
 // ---------- local index of bags in stock (so scanning works offline) ----------
 const BAG_SELECT =
-  'id, bag_no, bag_type, weight_kg, status, packed_at, batch_id, batches(batch_no, grade_id, qc_hold, hold_reason, sio2_pct, fe2o3_pct, moisture_pct, whiteness_pct, grades(name))'
+  'id, bag_no, bag_type, weight_kg, status, packed_at, batch_id, batches(batch_no, grade_id, mesh_id, qc_hold, hold_reason, sio2_pct, fe2o3_pct, moisture_pct, whiteness_pct, grades(name), grade_meshes(mesh))'
 let indexing = false
 export async function refreshBagIndex() {
   if (indexing || !isOnline() || !configured) return

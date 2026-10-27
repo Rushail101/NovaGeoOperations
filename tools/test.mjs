@@ -35,7 +35,15 @@ const d = {
   logs: [{ id: 'l1', type: 'breakdown', done_at: '2026-10-26T00:00:00Z', description: 'Belt snapped', assets: { name: 'Fan' } }, { id: 'l2', type: 'preventive', done_at: '2026-10-26T00:00:00Z' }],
   lining: [{ id: 'i1', mill_id: 'm1', inspected_at: '2026-09-01', condition: 'good' }, { id: 'i2', mill_id: 'm1', inspected_at: '2026-10-01', condition: 'repair_soon', min_thickness_mm: 18 }],
   downtime: [{ id: 'd1', mill_id: 'm1', started_at: '2026-10-27T00:00:00Z', ended_at: null, reason: 'power_cut' }],
-  weighments: [{ type: 'inbound', net_kg: 20000, weighed_at: '2026-10-26T06:00:00Z' }, { type: 'dispatch', net_kg: 5000, weighed_at: '2026-10-26T08:00:00Z' }, { type: 'dispatch', net_kg: 999, weighed_at: '2026-10-25T08:00:00Z' }],
+  weighments: [
+    { id: 'w1', type: 'inbound', net_kg: 20000, weighed_at: '2026-10-26T06:00:00Z', vehicle_no: 'TS09', permit_no: 'TP1', permit_qty_kg: 20200, supplier_invoice_no: 'I1', doc_paths: ['a.pdf'] },
+    { id: 'w2', type: 'dispatch', net_kg: 5000, weighed_at: '2026-10-26T08:00:00Z', invoice_no: 'INV1', eway_bill_no: '123456789012', doc_paths: ['b.pdf'] },
+    { id: 'w3', type: 'dispatch', net_kg: 999, weighed_at: '2026-10-25T08:00:00Z', vehicle_no: 'AP16' },
+    { id: 'w4', type: 'inbound', net_kg: 18000, weighed_at: '2026-10-26T09:00:00Z', vehicle_no: 'KA01', permit_no: 'TP2', permit_qty_kg: 21000, supplier_invoice_no: 'I2', doc_paths: ['c.pdf'] },
+  ],
+  licences: [{ id: 'L1', name: 'Consent to operate', valid_until: '2026-11-10' }, { id: 'L2', name: 'Fire NOC', valid_until: '2027-06-01' }, { id: 'L3', name: 'Factory licence', valid_until: '2026-10-01' }],
+  leases: [{ id: 'S1', name: 'Khammam Quarry', lease_valid_until: '2026-11-02' }],
+  settings: [{ key: 'permit_variance_pct', value: '3' }],
   runs: [{ output_kg: 8000, started_at: '2026-10-26T04:00:00Z' }],
 }
 const a = buildAlerts(d, now)
@@ -47,6 +55,10 @@ assert.equal(keys.filter((k) => k.startsWith('spare:')).length, 1)
 assert.ok(keys.includes('hold:b1') && keys.includes('bd:l1') && !keys.includes('bd:l2'))
 assert.ok(keys.includes('lining:i2') && !keys.includes('lining:i1'))
 assert.ok(keys.includes('down:d1'))
+assert.ok(keys.includes('papers:w3') && !keys.includes('papers:w1') && !keys.includes('papers:w2'))
+assert.ok(keys.includes('permit:w4') && !keys.includes('permit:w1'))
+assert.ok(keys.includes('lic:L1:2026-11-10:30') && !keys.some((k) => k.startsWith('lic:L2')) && keys.includes('lic:L3:2026-10-01:expired'))
+assert.ok(keys.includes('lease:S1:2026-11-02:7'))
 const daily = a.find((x) => x.key === 'daily:2026-10-27')
 assert.match(daily.text, /Dispatched 5,000 kg/)
 assert.match(daily.text, /Powder produced 8,000 kg/)
@@ -56,7 +68,7 @@ assert.ok(!buildAlerts(d, new Date('2026-10-26T20:00:00Z')).some((x) => x.key.st
 // run(): sends only unsent alerts and records them
 const logged = new Set(['hold:b1'])
 const inserted = []
-const tables = { ...d, mill_total_hours: d.hours, maintenance_schedules: d.schedules, spare_stock: d.spares, batches: d.held, maintenance_logs: d.logs, lining_inspections: d.lining, mill_runs: d.runs, alert_log: [...logged].map((key) => ({ key })) }
+const tables = { ...d, plant_settings: d.settings, suppliers: d.leases, mill_total_hours: d.hours, maintenance_schedules: d.schedules, spare_stock: d.spares, batches: d.held, maintenance_logs: d.logs, lining_inspections: d.lining, mill_runs: d.runs, alert_log: [...logged].map((key) => ({ key })) }
 const q = (rows) => { const o = { select: () => o, eq: () => o, gte: () => o, is: () => o, then: (r) => r({ data: rows, error: null }) }; return o }
 const client = { from: (t) => (t === 'alert_log' ? { select: () => q(tables.alert_log), insert: async (r) => (inserted.push(r.key), { error: null }) } : { select: () => q(tables[t] ?? tables[{ mills: 'mills' }[t]] ?? []) }) }
 const sent = []

@@ -93,7 +93,13 @@ export function Form({ fields, initial = {}, onSubmit, onCancel, submitLabel = '
   const [v, setV] = useState(initial)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
-  const set = (k, val) => setV((p) => ({ ...p, [k]: val }))
+  const set = (k, val) =>
+    setV((p) => {
+      let n = { ...p, [k]: val }
+      const f = fields.find((x) => x.name === k)
+      if (f?.onPick) n = { ...n, ...f.onPick(val, n) }
+      return n
+    })
 
   async function submit(e) {
     e.preventDefault()
@@ -112,12 +118,12 @@ export function Form({ fields, initial = {}, onSubmit, onCancel, submitLabel = '
       {fields
         .filter((f) => !f.showIf || f.showIf(v))
         .map((f) => (
-          <label key={f.name} className={f.type === 'checkbox' ? 'check' : ['textarea', 'photos'].includes(f.type) || f.wide ? 'wide' : ''}>
+          <label key={f.name} className={f.type === 'checkbox' ? 'check' : ['textarea', 'photos', 'docs'].includes(f.type) || f.wide ? 'wide' : ''}>
             <span>{f.label}</span>
             {f.type === 'select' ? (
-              <select value={v[f.name] ?? ''} required={f.required} onChange={(e) => set(f.name, e.target.value)}>
+              <select value={v[f.name] ?? ''} required={typeof f.required === 'function' ? f.required(v) : f.required} onChange={(e) => set(f.name, e.target.value)}>
                 <option value="">-</option>
-                {f.options.map((o) => (
+                {(f.optionsFor ? f.optionsFor(v) : f.options).map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
                 ))}
               </select>
@@ -125,8 +131,8 @@ export function Form({ fields, initial = {}, onSubmit, onCancel, submitLabel = '
               <textarea rows={2} value={v[f.name] ?? ''} onChange={(e) => set(f.name, e.target.value)} />
             ) : f.type === 'checkbox' ? (
               <input type="checkbox" checked={!!v[f.name]} onChange={(e) => set(f.name, e.target.checked)} />
-            ) : f.type === 'photos' ? (
-              <PhotoField value={v[f.name] || []} onChange={(x) => set(f.name, x)} folder={f.folder || 'misc'} />
+            ) : f.type === 'photos' || f.type === 'docs' ? (
+              <PhotoField value={v[f.name] || []} onChange={(x) => set(f.name, x)} folder={f.folder || 'misc'} docs={f.type === 'docs'} />
             ) : (
               <>
                 <input
@@ -136,12 +142,14 @@ export function Form({ fields, initial = {}, onSubmit, onCancel, submitLabel = '
                   list={f.datalist ? `dl-${f.name}` : undefined}
                   value={v[f.name] ?? ''}
                   required={f.required}
+                  readOnly={f.readOnly}
                   onChange={(e) => set(f.name, e.target.value)}
                 />
                 {f.datalist && <datalist id={`dl-${f.name}`}>{f.datalist.map((d) => <option key={d} value={d} />)}</datalist>}
               </>
             )}
             {f.hint && <small className="muted">{f.hint}</small>}
+            {f.hintFn && f.hintFn(v) && <small className="flag">{f.hintFn(v)}</small>}
           </label>
         ))}
       {err && <div className="error">{err}</div>}
@@ -163,7 +171,7 @@ export function clean(values, fields) {
     if (x != null && f.type === 'number') x = Number(x)
     if (x != null && f.type === 'datetime-local') x = new Date(x).toISOString()
     if (f.type === 'checkbox') x = !!x
-    if (f.type === 'photos') x = x && x.length ? x : null
+    if (f.type === 'photos' || f.type === 'docs') x = x && x.length ? x : null
     out[f.name] = x
   }
   return out
@@ -195,6 +203,7 @@ export function DataPage({
   offlineLabel,
   dateField, // adds From/To filters on this column
   pageSize = 200,
+  idField = 'id',
 }) {
   const { role, name } = useAuth()
   const online = useOnline()
@@ -233,7 +242,7 @@ export function DataPage({
         if (afterSave) await afterSave(res.data)
       }
     } else {
-      const res = await supabase.from(table).update(payload).eq('id', editing.id).select().single()
+      const res = await supabase.from(table).update(payload).eq(idField, editing[idField]).select().single()
       if (res.error) throw isNetworkError(res.error) ? new Error('No connection. Editing an existing record needs the internet; new entries can be saved offline.') : res.error
       if (afterSave) await afterSave(res.data)
     }
@@ -243,7 +252,7 @@ export function DataPage({
 
   async function remove(row) {
     if (!confirm('Delete this record?')) return
-    const { error } = await supabase.from(table).delete().eq('id', row.id)
+    const { error } = await supabase.from(table).delete().eq(idField, row[idField])
     if (error) alert(isNetworkError(error) ? 'No connection. Deleting needs the internet.' : error.message)
     else reload()
   }
@@ -319,7 +328,7 @@ export function DataPage({
             </thead>
             <tbody>
               {shown.map((r) => (
-                <tr key={r.id}>
+                <tr key={r[idField]}>
                   {columns.map((c) => (
                     <td key={c.label} data-label={c.label}>{c.render ? c.render(r) : r[c.key] ?? '-'}</td>
                   ))}
@@ -341,6 +350,14 @@ export function DataPage({
       )}
     </section>
   )
+}
+
+// Expiry badge for a date: red when passed, amber within 30 days
+export const daysLeft = (d) => (d ? Math.ceil((new Date(d + 'T23:59:59+05:30').getTime() - Date.now()) / 86400000) : null)
+export function Expiry({ date }) {
+  const n = daysLeft(date)
+  if (n == null) return '-'
+  return <Badge tone={n < 0 ? 'red' : n <= 30 ? 'amber' : 'green'}>{n < 0 ? `expired ${-n} d ago` : n === 0 ? 'expires today' : `${n} d left`}</Badge>
 }
 
 export const Badge = ({ tone = 'grey', children }) => <span className={'badge ' + tone}>{children}</span>

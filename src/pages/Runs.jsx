@@ -1,8 +1,10 @@
-import { DataPage, useRows, opts, fmtKg, fmtDateTime, toLocalInput } from '../lib.jsx'
+import { DataPage, useRows, opts, fmtKg, fmtDateTime, toLocalInput, gradeLabel } from '../lib.jsx'
+import { useMeshes, gradeMeshFields } from '../meshes.js'
 
 export default function Runs() {
   const mills = useRows('mills', { order: 'name', asc: true })
   const grades = useRows('grades', { order: 'name', asc: true })
+  const meshes = useMeshes()
   const hours = useRows('mill_total_hours')
   const orders = useRows('orders', { select: 'id, order_no, status, customers(name)', order: 'created_at' })
   const openOrders = orders.rows.filter((o) => !['dispatched', 'cancelled'].includes(o.status))
@@ -12,7 +14,7 @@ export default function Runs() {
     { name: 'mill_id', label: 'Mill', type: 'select', required: true, options: opts(mills.rows) },
     { name: 'started_at', label: 'Started', type: 'datetime-local', required: true },
     { name: 'ended_at', label: 'Ended (leave blank if running)', type: 'datetime-local' },
-    { name: 'grade_id', label: 'Grade', type: 'select', options: opts(grades.rows) },
+    ...gradeMeshFields(grades.rows, meshes.rows, { gradeRequired: false, meshRequired: false }),
     { name: 'order_id', label: 'For order (optional)', type: 'select', options: opts(openOrders, (o) => `${o.order_no} - ${o.customers?.name ?? ''}`) },
     { name: 'kwh_start', label: 'Energy meter at start (kWh)', type: 'number' },
     { name: 'kwh_end', label: 'Energy meter at end (kWh)', type: 'number' },
@@ -38,7 +40,7 @@ export default function Runs() {
     <DataPage
       title="Mill runs"
       table="mill_runs"
-      select="*, mills(name), grades(name), orders(order_no)"
+      select="*, mills(name), grades(name), grade_meshes(mesh), orders(order_no)"
       order="started_at"
       dateField="started_at"
       offline
@@ -50,7 +52,7 @@ export default function Runs() {
         { label: 'Mill', render: (r) => r.mills?.name },
         { label: 'Started', render: (r) => fmtDateTime(r.started_at) },
         { label: 'Hours', render: (r) => (r.hours == null ? 'Running' : r.hours) },
-        { label: 'Grade', render: (r) => r.grades?.name },
+        { label: 'Grade / mesh', render: (r) => gradeLabel(r.grades, r.grade_meshes) },
         { label: 'Feed', render: (r) => fmtKg(r.feed_kg) },
         { label: 'Output', render: (r) => fmtKg(r.output_kg) },
         { label: 'Yield', render: (r) => (r.feed_kg > 0 && r.output_kg != null ? ((r.output_kg / r.feed_kg) * 100).toFixed(1) + '%' : '-') },

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../supabase.js'
 import { useAuth } from '../auth.jsx'
 import { canPack, can } from '../perms.js'
-import { useRows, fmtKg, fmtDate, fmtDateTime, Badge } from '../lib.jsx'
+import { useRows, fmtKg, fmtDate, fmtDateTime, gradeLabel, Badge } from '../lib.jsx'
 import { openPrintWindow, printLabels } from '../print.js'
 import { OutboxList } from '../Outbox.jsx'
 import { enqueue, takeBagNumbers, indexAddBags, ensureBagBlock, bagNumbersLeft, isOnline, noteNetwork, isNetworkError } from '../offline.js'
@@ -16,13 +16,13 @@ const labelOf = (b) => ({
   bag_type: b.bag_type,
   weight_kg: b.weight_kg,
   batch_no: b.batches?.batch_no,
-  grade: b.batches?.grades?.name,
+  grade: gradeLabel(b.batches?.grades, b.batches?.grade_meshes),
   packed_on: fmtDate(b.packed_at),
 })
 
 function PackForm({ onDone }) {
   const batches = useRows('batches', {
-    select: 'id, batch_no, grade_id, qc_hold, sio2_pct, fe2o3_pct, moisture_pct, whiteness_pct, grades(name)',
+    select: 'id, batch_no, grade_id, mesh_id, qc_hold, sio2_pct, fe2o3_pct, moisture_pct, whiteness_pct, grades(name), grade_meshes(mesh)',
     order: 'created_at',
     limit: 100,
   })
@@ -79,7 +79,7 @@ function PackForm({ onDone }) {
         <label><span>Batch</span>
           <select required value={v.batch} onChange={(e) => set('batch', e.target.value)}>
             <option value="">-</option>
-            {batches.rows.map((b) => <option key={b.id} value={b.id}>{b.batch_no} - {b.grades?.name}{b.qc_hold ? ' (on hold)' : ''}</option>)}
+            {batches.rows.map((b) => <option key={b.id} value={b.id}>{b.batch_no} - {gradeLabel(b.grades, b.grade_meshes)}{b.qc_hold ? ' (on hold)' : ''}</option>)}
           </select>
         </label>
         <label><span>Type</span>
@@ -126,7 +126,7 @@ function Trace() {
     setMsg(null)
     const { data, error } = await supabase
       .from('bags')
-      .select('*, batches(*, grades(name), mills(name)), orders(order_no, customers(name)), weighments(vehicle_no, weighed_at, net_kg)')
+      .select('*, batches(*, grades(name), grade_meshes(mesh), mills(name)), orders(order_no, customers(name)), weighments(vehicle_no, weighed_at, net_kg)')
       .eq('bag_no', bagNo)
       .maybeSingle()
     if (error) return setMsg(error.message)
@@ -148,7 +148,7 @@ function Trace() {
         <div style={{ marginTop: 10 }}>
           <div><strong>{res.bag_no}</strong> <Badge tone={tone[res.status]}>{res.status.replace('_', ' ')}</Badge> {res.bag_type} - {fmtKg(res.weight_kg)}, packed {fmtDateTime(res.packed_at)}</div>
           <div className="muted">
-            Batch {res.batches?.batch_no} | {res.batches?.grades?.name} | {res.batches?.mills?.name} | produced {fmtDate(res.batches?.produced_on)}
+            Batch {res.batches?.batch_no} | {gradeLabel(res.batches?.grades, res.batches?.grade_meshes)} | {res.batches?.mills?.name} | produced {fmtDate(res.batches?.produced_on)}
             {res.batches?.inbound_lot_no ? ` | quartz lot ${res.batches.inbound_lot_no}` : ''}
           </div>
           <div className="muted">
@@ -167,7 +167,7 @@ function Trace() {
 export default function Bags() {
   const { role } = useAuth()
   const { rows, loading, error, reload } = useRows('bags', {
-    select: '*, batches(batch_no, grades(name)), orders(order_no), packer:profiles!packed_by(full_name, username)',
+    select: '*, batches(batch_no, grades(name), grade_meshes(mesh)), orders(order_no), packer:profiles!packed_by(full_name, username)',
     order: 'packed_at',
     limit: 500,
   })
@@ -230,7 +230,7 @@ export default function Bags() {
                   <td data-label="Type">{b.bag_type}</td>
                   <td data-label="Weight">{fmtKg(b.weight_kg)}</td>
                   <td data-label="Batch">{b.batches?.batch_no}</td>
-                  <td data-label="Grade">{b.batches?.grades?.name}</td>
+                  <td data-label="Grade">{gradeLabel(b.batches?.grades, b.batches?.grade_meshes)}</td>
                   <td data-label="Packed">{fmtDateTime(b.packed_at)}</td>
                   <td data-label="By">{b.packer?.full_name || b.packer?.username || '-'}</td>
                   <td data-label="Status"><Badge tone={tone[b.status]}>{b.status.replace('_', ' ')}</Badge></td>

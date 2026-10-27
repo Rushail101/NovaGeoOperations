@@ -4,6 +4,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { pathToFileURL } from 'node:url'
 import { computeDue } from '../src/due.js'
+import { missingPapers, permitProblems } from '../src/papers.js'
 
 const istDate = (d) => new Date(d).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
 const istHour = (d) => Number(new Date(d).toLocaleString('en-GB', { timeZone: 'Asia/Kolkata', hour: '2-digit', hour12: false }))
@@ -45,6 +46,31 @@ export function buildAlerts(d, now = new Date()) {
       out.push({ key: `down:${x.id}`, text: `${mills[x.mill_id] ?? 'Mill'} has been down for over 2 hours (${x.reason.replace('_', ' ')})` })
   }
 
+  // Paperwork: loads still missing papers a day after weighing, and permit problems
+  const limit = Number(d.settings?.find((s) => s.key === 'permit_variance_pct')?.value ?? 3)
+  for (const w of d.weighments || []) {
+    if (!w.id || w.type === 'mill_feed') continue
+    const age = now.getTime() - new Date(w.weighed_at).getTime()
+    const miss = missingPapers(w)
+    if (miss.length && age > 24 * 3600000)
+      out.push({ key: `papers:${w.id}`, text: `Papers missing for ${w.type === 'inbound' ? 'inbound' : 'dispatch'} ${w.vehicle_no || ''} of ${istDate(w.weighed_at)}: ${miss.join(', ')}` })
+    if (w.type === 'inbound') {
+      const bad = permitProblems(w, limit)
+      if (bad.length) out.push({ key: `permit:${w.id}`, text: `Permit check, inbound ${w.vehicle_no || ''} of ${istDate(w.weighed_at)} (permit ${w.permit_no || '?'}): ${bad.join('; ')}` })
+    }
+  }
+
+  // Licences and supplier leases: warn at 30 days, 7 days and once expired
+  const expiry = (kind, id, name, date) => {
+    if (!date) return
+    const left = Math.ceil((new Date(date + 'T23:59:59+05:30').getTime() - now.getTime()) / 86400000)
+    const stage = left < 0 ? 'expired' : left <= 7 ? '7' : left <= 30 ? '30' : null
+    if (!stage) return
+    out.push({ key: `${kind}:${id}:${date}:${stage}`, text: left < 0 ? `EXPIRED: ${name} (valid until ${date})` : `Expiring in ${left} day${left === 1 ? '' : 's'}: ${name} (valid until ${date})` })
+  }
+  for (const l of d.licences || []) expiry('lic', l.id, l.name, l.valid_until)
+  for (const s of d.leases || []) expiry('lease', s.id, `${s.name} mining lease`, s.lease_valid_until)
+
   // Morning summary, once, from 8am IST
   if (istHour(now) >= 8) {
     const y = istDate(new Date(now.getTime() - 86400000))
@@ -74,7 +100,8 @@ async function load(c, now) {
     return data || []
   }
   const since = new Date(now.getTime() - 3 * 86400000).toISOString()
-  const [mills, schedules, assets, hours, orders, spares, held, logs, lining, downtime, weighments, runs, sent] = await Promise.all([
+  const week = new Date(now.getTime() - 14 * 86400000).toISOString()
+  const [mills, schedules, assets, hours, orders, spares, held, logs, lining, downtime, weighments, runs, sent, licences, leases, settings] = await Promise.all([
     get(c.from('mills').select('id, name')),
     get(c.from('maintenance_schedules').select('*')),
     get(c.from('assets').select('*')),
@@ -85,11 +112,14 @@ async function load(c, now) {
     get(c.from('maintenance_logs').select('id, type, done_at, description, assets(name)').gte('done_at', since)),
     get(c.from('lining_inspections').select('id, mill_id, inspected_at, condition, min_thickness_mm')),
     get(c.from('downtime').select('id, mill_id, started_at, ended_at, reason').is('ended_at', null)),
-    get(c.from('weighments').select('type, net_kg, weighed_at').gte('weighed_at', since)),
+    get(c.from('weighments').select('id, type, net_kg, gross_kg, tare_kg, weighed_at, vehicle_no, doc_paths, supplier_invoice_no, permit_no, permit_qty_kg, permit_valid_until, invoice_no, eway_bill_no').gte('weighed_at', week)),
     get(c.from('mill_runs').select('output_kg, started_at').gte('started_at', since)),
     get(c.from('alert_log').select('key')),
+    get(c.from('licences').select('id, name, valid_until')),
+    get(c.from('suppliers').select('id, name, lease_valid_until')),
+    get(c.from('plant_settings').select('key, value')),
   ])
-  return { data: { mills, schedules, assets, hours, orders, spares, held, logs, lining, downtime, weighments, runs }, sent: new Set(sent.map((s) => s.key)) }
+  return { data: { mills, schedules, assets, hours, orders, spares, held, logs, lining, downtime, weighments, runs, licences, leases, settings }, sent: new Set(sent.map((s) => s.key)) }
 }
 
 export async function sendTelegram(token, chat, text, fetchFn = fetch) {

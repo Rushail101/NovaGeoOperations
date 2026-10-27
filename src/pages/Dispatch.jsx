@@ -1,12 +1,14 @@
 import { useState } from 'react'
 import { supabase } from '../supabase.js'
 import { useAuth } from '../auth.jsx'
-import { useRows, fmtKg, fmtDateTime, Modal, Form, toast, Badge } from '../lib.jsx'
+import { useRows, fmtKg, fmtDateTime, gradeLabel, Modal, Form, toast, Badge } from '../lib.jsx'
 import { printDispatchSlip } from '../print.js'
 import { OutboxList } from '../Outbox.jsx'
 import { callRpc, lookupBag, indexRemoveBags, uuid, useOnline } from '../offline.js'
 import { checkSpec, effectiveSpec } from '../spec.js'
 import Scanner from '../Scanner.jsx'
+import { PhotoLink } from '../PhotoField.jsx'
+import { AttachFiles } from '../Papers.jsx'
 
 const TOLERANCE_PCT = 1 // warn when the weighbridge net differs from the sum of bag weights by more than this
 const EMPTY = { vehicle: '', gross: '', tare: '', notes: '', invoice: '', eway: '', transporter: '', lr: '' }
@@ -28,11 +30,15 @@ function DocsForm({ row, onDone }) {
   return <Form grid fields={fields} initial={row} onSubmit={submit} />
 }
 
+// A bag is the wrong product if its grade differs, or the order names a mesh size and the batch is another one
+const notMatching = (bag, order) =>
+  bag.batches?.grade_id !== order.grade_id || (order.mesh_id && bag.batches?.mesh_id !== order.mesh_id)
+
 export default function Dispatch() {
   const { name } = useAuth()
   const online = useOnline()
   const orders = useRows('orders', {
-    select: 'id, order_no, qty_kg, status, grade_id, spec_min_sio2, spec_max_fe2o3, spec_max_moisture, spec_min_whiteness, customers(name), grades(name, spec_min_sio2, spec_max_fe2o3, spec_max_moisture, spec_min_whiteness)',
+    select: 'id, order_no, qty_kg, status, grade_id, mesh_id, spec_min_sio2, spec_max_fe2o3, spec_max_moisture, spec_min_whiteness, customers(name), grades(name, spec_min_sio2, spec_max_fe2o3, spec_max_moisture, spec_min_whiteness), grade_meshes(mesh, spec_min_sio2, spec_max_fe2o3, spec_max_moisture, spec_min_whiteness)',
     order: 'created_at',
   })
   const progress = useRows('order_progress')
@@ -46,10 +52,11 @@ export default function Dispatch() {
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState(null)
   const [docs, setDocs] = useState(null)
+  const [attach, setAttach] = useState(null)
 
   const open = orders.rows.filter((o) => !['dispatched', 'cancelled'].includes(o.status))
   const order = open.find((o) => o.id === orderId)
-  const spec = order ? effectiveSpec(order, order.grades) : null
+  const spec = order ? effectiveSpec(order, order.grades, order.grade_meshes) : null
   const pending = progress.rows.find((p) => p.id === orderId)?.pending_kg
   const bagTotal = bags.reduce((a, b) => a + Number(b.weight_kg), 0)
   const net = f.gross !== '' && f.tare !== '' ? Number(f.gross) - Number(f.tare) : null
@@ -68,10 +75,10 @@ export default function Dispatch() {
     if (bag.status !== 'in_stock') return setMsg({ tone: 'error', text: `${no} is ${bag.status.replace('_', ' ')}, cannot be dispatched` })
     if (bag.batches?.qc_hold) return setMsg({ tone: 'error', text: `${no} is in batch ${bag.batches.batch_no}, which is on QC hold${bag.batches.hold_reason ? ': ' + bag.batches.hold_reason : ''}` })
     setBags((p) => [...p, bag])
-    const c = order ? checkSpec(bag.batches, effectiveSpec(order, order.grades)) : null
-    const mismatch = order && bag.batches?.grade_id !== order.grade_id
+    const c = order ? checkSpec(bag.batches, effectiveSpec(order, order.grades, order.grade_meshes)) : null
+    const mismatch = order && notMatching(bag, order)
     setMsg(
-      mismatch ? { tone: 'warn', text: `${no} added, but its grade (${bag.batches?.grades?.name}) is not the order grade (${order.grades?.name})` }
+      mismatch ? { tone: 'warn', text: `${no} added, but its grade (${gradeLabel(bag.batches?.grades, bag.batches?.grade_meshes)}) is not the order's (${gradeLabel(order.grades, order.grade_meshes)})` }
       : c && c.fails.length ? { tone: 'warn', text: `${no} added, but outside the order's limits: ${c.fails.join('; ')}` }
       : c && c.untested.length ? { tone: 'warn', text: `${no} added, but not tested for ${c.untested.join(', ')}` }
       : { tone: 'ok', text: `${no} added - ${fmtKg(bag.weight_kg)}${local ? ' (from saved list)' : ''}` }
@@ -83,8 +90,8 @@ export default function Dispatch() {
     if (!order) return alert('Pick an order')
     if (bags.length === 0) return alert('Add at least one bag')
     if (net == null || net <= 0) return alert('Enter gross and tare weights (gross must be more than tare)')
-    const odd = bags.filter((b) => b.batches?.grade_id !== order.grade_id)
-    if (odd.length && !confirm(`${odd.length} bag(s) are a different grade than the order. Dispatch anyway?`)) return
+    const odd = bags.filter((b) => notMatching(b, order))
+    if (odd.length && !confirm(`${odd.length} bag(s) are a different grade or mesh size than the order. Dispatch anyway?`)) return
     const off = bags.map((b) => ({ b, c: check(b) })).filter((x) => x.c && (x.c.fails.length || x.c.untested.length))
     let note = f.notes
     if (off.length) {
@@ -107,7 +114,7 @@ export default function Dispatch() {
       }
       setDone({
         no: 'D-' + id.slice(0, 8).toUpperCase(), date: new Date().toLocaleString('en-IN'), company: 'Nova Geo Resources',
-        customer: order.customers?.name, order_no: order.order_no, grade: order.grades?.name, vehicle: f.vehicle,
+        customer: order.customers?.name, order_no: order.order_no, grade: gradeLabel(order.grades, order.grade_meshes), vehicle: f.vehicle,
         gross: Number(f.gross), tare: Number(f.tare), net, bag_total: bagTotal, notes: note,
         invoice_no: f.invoice, eway_bill_no: f.eway, transporter: f.transporter, lr_no: f.lr,
         bags: bags.map((b) => ({ bag_no: b.bag_no, batch_no: b.batches?.batch_no, weight_kg: b.weight_kg })),
@@ -155,12 +162,12 @@ export default function Dispatch() {
         <label><span>Order</span>
           <select value={orderId} onChange={(e) => setOrderId(e.target.value)}>
             <option value="">-</option>
-            {open.map((o) => <option key={o.id} value={o.id}>{o.order_no} - {o.customers?.name} - {o.grades?.name}</option>)}
+            {open.map((o) => <option key={o.id} value={o.id}>{o.order_no} - {o.customers?.name} - {gradeLabel(o.grades, o.grade_meshes)}</option>)}
           </select>
         </label>
         {order && (
           <div className="muted">
-            Order {fmtKg(order.qty_kg)}, pending {fmtKg(pending ?? order.qty_kg)}, grade {order.grades?.name}
+            Order {fmtKg(order.qty_kg)}, pending {fmtKg(pending ?? order.qty_kg)}, grade {gradeLabel(order.grades, order.grade_meshes)}
             {spec && Object.values(spec).some((x) => x != null) && (
               <> | limits: {[spec.min_whiteness != null && `whiteness >= ${spec.min_whiteness}`, spec.max_fe2o3 != null && `Fe2O3 <= ${spec.max_fe2o3}`, spec.min_sio2 != null && `SiO2 >= ${spec.min_sio2}`, spec.max_moisture != null && `moisture <= ${spec.max_moisture}`].filter(Boolean).join(', ')}</>
             )}
@@ -190,7 +197,7 @@ export default function Dispatch() {
                   return (
                     <tr key={b.bag_no}>
                       <td data-label="#">{i + 1}</td><td data-label="Bag">{b.bag_no}</td><td data-label="Batch">{b.batches?.batch_no}</td>
-                      <td data-label="Grade" className={order && b.batches?.grade_id !== order.grade_id ? 'warn' : ''}>{b.batches?.grades?.name}</td>
+                      <td data-label="Grade" className={order && notMatching(b, order) ? 'warn' : ''}>{gradeLabel(b.batches?.grades, b.batches?.grade_meshes)}</td>
                       <td data-label="Limits">{!c || !c.limited ? '-' : c.fails.length ? <Badge tone="red">outside</Badge> : c.untested.length ? <Badge tone="amber">not tested</Badge> : <Badge tone="green">ok</Badge>}</td>
                       <td data-label="Weight">{fmtKg(b.weight_kg)}</td>
                       <td className="actions"><button type="button" className="link danger" onClick={() => setBags(bags.filter((x) => x.bag_no !== b.bag_no))}>Remove</button></td>
@@ -230,7 +237,7 @@ export default function Dispatch() {
       {recent.rows.length === 0 ? <div className="empty">No dispatches yet.</div> : (
         <div className="tablewrap">
           <table className="stack">
-            <thead><tr><th>When</th><th>Customer</th><th>Order</th><th>Vehicle</th><th>Net</th><th>Invoice</th><th>E-way bill</th><th /></tr></thead>
+            <thead><tr><th>When</th><th>Customer</th><th>Order</th><th>Vehicle</th><th>Net</th><th>Invoice</th><th>E-way bill</th><th>Files</th><th /></tr></thead>
             <tbody>
               {recent.rows.map((w) => (
                 <tr key={w.id}>
@@ -241,8 +248,10 @@ export default function Dispatch() {
                   <td data-label="Net">{fmtKg(w.net_kg)}</td>
                   <td data-label="Invoice">{w.invoice_no || <span className="warn">missing</span>}</td>
                   <td data-label="E-way bill">{w.eway_bill_no || <span className="warn">missing</span>}</td>
+                  <td data-label="Files"><PhotoLink paths={w.doc_paths} /></td>
                   <td className="actions">
                     <button className="link" onClick={() => setDocs(w)}>Invoice / e-way</button>
+                    <button className="link" onClick={() => setAttach(w)}>Attach files</button>
                     <button className="link" onClick={() => reprint(w)}>Slip</button>
                   </td>
                 </tr>
@@ -250,6 +259,11 @@ export default function Dispatch() {
             </tbody>
           </table>
         </div>
+      )}
+      {attach && (
+        <Modal title={`Papers: ${attach.vehicle_no || 'dispatch'}`} onClose={() => setAttach(null)}>
+          <AttachFiles row={attach} folder="dispatch" hint="Invoice copy from the finance app, e-way bill, LR copy, lab certificate." onDone={() => { setAttach(null); recent.reload() }} />
+        </Modal>
       )}
       {docs && (
         <Modal title={`Invoice and e-way bill: ${docs.vehicle_no || 'dispatch'}`} onClose={() => setDocs(null)}>

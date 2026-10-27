@@ -8,7 +8,8 @@ import { pathToFileURL } from 'node:url'
 export const TABLES = [
   'profiles', 'mills', 'customers', 'suppliers', 'grades', 'orders', 'weighments', 'mill_runs',
   'assets', 'maintenance_schedules', 'maintenance_logs', 'lining_inspections', 'batches', 'bags',
-  'spare_items', 'spare_moves', 'downtime', 'shift_notes', 'dust_logs', 'audit_log',
+  'spare_items', 'spare_moves', 'downtime', 'shift_notes', 'dust_logs', 'grade_meshes', 'licences', 'vehicles',
+  'stock_counts', 'plant_settings', 'audit_log',
 ]
 const PAGE = 1000
 

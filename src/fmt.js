@@ -7,4 +7,5 @@ export const toLocalInput = (d = new Date()) => {
   x.setMinutes(x.getMinutes() - x.getTimezoneOffset())
   return x.toISOString().slice(0, 16)
 }
+export const gradeLabel = (g, m) => (g ? `${g.name}${m?.mesh ? ` - ${m.mesh} mesh` : ''}` : '-')
 export const todayIso = () => new Date().toLocaleDateString('en-CA')

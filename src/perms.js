@@ -32,6 +32,11 @@ const PERMS = {
   downtime: { insert: [A, S, O, M], update: [A, S, O, M] },
   shift_notes: { insert: [A, S, W, O, M], update: [A, S] },
   dust_logs: { insert: [A, S, O], update: [A, S, O] },
+  grade_meshes: { insert: [A, S], update: [A, S] },
+  licences: { insert: [A, S], update: [A, S] },
+  vehicles: { insert: [A, S, W], update: [A, S, W] },
+  stock_counts: { insert: [A, S, O], update: [A, S] },
+  plant_settings: { insert: [], update: [A] },
   profiles: { insert: [], update: [A] },
 }
 

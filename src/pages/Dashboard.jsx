@@ -1,5 +1,6 @@
 import { useRows, fmtKg, fmtDateTime, fmtNum, Badge } from '../lib.jsx'
 import { computeDue } from '../due.js'
+import { missingPapers, permitProblems } from '../papers.js'
 import { useSync } from '../offline.js'
 
 const startOfToday = () => {
@@ -11,7 +12,7 @@ const startOfToday = () => {
 export default function Dashboard() {
   const orders = useRows('order_progress')
   const orderMeta = useRows('orders', { select: 'id, status, due_date, order_no' })
-  const weighments = useRows('weighments', { select: 'type, net_kg, weighed_at', order: 'weighed_at', limit: 1000 })
+  const weighments = useRows('weighments', { select: 'id, type, net_kg, weighed_at, vehicle_no, gross_kg, tare_kg, doc_paths, supplier_invoice_no, permit_no, permit_qty_kg, permit_valid_until, invoice_no, eway_bill_no', order: 'weighed_at', limit: 1000 })
   const runs = useRows('mill_runs', { select: 'output_kg, feed_kg, started_at, kwh_used', order: 'started_at', limit: 1000 })
   const mills = useRows('mills')
   const hours = useRows('mill_total_hours')
@@ -24,7 +25,20 @@ export default function Dashboard() {
   const held = useRows('batches', { select: 'id, batch_no, hold_reason, whiteness_pct', eq: ['qc_hold', true], order: 'created_at' })
   const notes = useRows('shift_notes', { order: 'noted_at', limit: 1 })
   const down = useRows('downtime', { select: 'id, reason, started_at, ended_at, mills(name)', order: 'started_at', limit: 50 })
+  const licences = useRows('licences', { order: 'valid_until', asc: true })
+  const leases = useRows('suppliers', { select: 'id, name, lease_valid_until' })
+  const settings = useRows('plant_settings')
   const sync = useSync()
+  const limitPct = Number(settings.rows.find((s) => s.key === 'permit_variance_pct')?.value ?? 3)
+  const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString()
+  const recentW = weighments.rows.filter((w) => w.weighed_at >= monthAgo)
+  const noPapers = recentW.filter((w) => missingPapers(w).length)
+  const permitIssues = recentW.filter((w) => w.type === 'inbound' && permitProblems(w, limitPct).length)
+  const soon = (d) => d && Math.ceil((new Date(d + 'T23:59:59+05:30').getTime() - Date.now()) / 86400000) <= 30
+  const expiring = [
+    ...licences.rows.filter((l) => soon(l.valid_until)).map((l) => ({ id: l.id, name: l.name, date: l.valid_until })),
+    ...leases.rows.filter((l) => soon(l.lease_valid_until)).map((l) => ({ id: l.id, name: `${l.name} (mining lease)`, date: l.lease_valid_until })),
+  ]
   const stillDown = down.rows.filter((d) => !d.ended_at)
   const lowSpares = spares.rows.filter((i) => i.active && Number(i.reorder_level) > 0 && Number(i.on_hand) <= Number(i.reorder_level))
   const note = notes.rows[0]
@@ -129,6 +143,20 @@ export default function Dashboard() {
             </div>
           </div>
         </>
+      )}
+
+      <h2>Compliance</h2>
+      <div className="stats">
+        <div className="stat"><div className="label">Loads with papers missing (30 days)</div><div className="value">{noPapers.length}</div></div>
+        <div className="stat"><div className="label">Permit checks needed</div><div className="value">{permitIssues.length}</div></div>
+        <div className="stat"><div className="label">Licences / leases expiring</div><div className="value">{expiring.length}</div></div>
+      </div>
+      {(noPapers.length > 0 || expiring.length > 0) && (
+        <div className="card">
+          {expiring.map((e) => <div key={e.id} className="line"><Badge tone="amber">expiring</Badge> {e.name} <span className="muted">valid until {e.date}</span></div>)}
+          {noPapers.slice(0, 6).map((w) => <div key={w.id} className="line"><Badge tone="red">papers</Badge> {w.type === 'inbound' ? 'Inbound' : 'Dispatch'} {w.vehicle_no || ''} {fmtDateTime(w.weighed_at)} <span className="muted">missing {missingPapers(w).join(', ')}</span></div>)}
+          {noPapers.length > 6 && <div className="muted">and {noPapers.length - 6} more on the Weighments page</div>}
+        </div>
       )}
 
       <h2>Resin lining</h2>

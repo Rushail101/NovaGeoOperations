@@ -1,4 +1,5 @@
-import { DataPage, useRows, opts, fmtDate, fmtDateTime, Badge } from '../lib.jsx'
+import { DataPage, useRows, opts, fmtDate, fmtDateTime, gradeLabel, Badge } from '../lib.jsx'
+import { useMeshes, gradeMeshFields } from '../meshes.js'
 import { supabase } from '../supabase.js'
 import { useAuth } from '../auth.jsx'
 import { canHold } from '../perms.js'
@@ -9,13 +10,13 @@ async function certificate(b, user) {
   if (error) return alert(error.message)
   const { exportReport } = await import('../pdf.js')
   const kg = (x) => Number(x).toLocaleString('en-IN', { maximumFractionDigits: 2 })
-  const spec = checkSpec(b, effectiveSpec(null, b.grades))
+  const spec = checkSpec(b, effectiveSpec(null, b.grades, b.grade_meshes))
   await exportReport(
     {
       title: 'Batch quality certificate',
       subtitle: `Batch ${b.batch_no}`,
       summary: [
-        ['Product', b.grades?.name || '-'], ['Production date', fmtDate(b.produced_on)], ['Mill', b.mills?.name || '-'], ['Quartz lot', b.inbound_lot_no || '-'],
+        ['Product', gradeLabel(b.grades, b.grade_meshes)], ['Production date', fmtDate(b.produced_on)], ['Mill', b.mills?.name || '-'], ['Quartz lot', b.inbound_lot_no || '-'],
         ['SiO2', b.sio2_pct != null ? `${b.sio2_pct} %` : '-'], ['Fe2O3', b.fe2o3_pct != null ? `${b.fe2o3_pct} %` : '-'],
         ['Moisture', b.moisture_pct != null ? `${b.moisture_pct} %` : '-'], ['Whiteness', b.whiteness_pct != null ? `${b.whiteness_pct} %` : '-'],
         ['Tested on', b.tested_on ? fmtDate(b.tested_on) : '-'],
@@ -32,6 +33,7 @@ export default function Batches() {
   const { name, role } = useAuth()
   const mills = useRows('mills', { order: 'name', asc: true })
   const grades = useRows('grades', { order: 'name', asc: true })
+  const meshes = useMeshes()
   const runs = useRows('mill_runs', { select: 'id, started_at, mills(name)', order: 'started_at', limit: 100 })
   const lots = useRows('weighments', { select: 'lot_no', eq: ['type', 'inbound'], order: 'weighed_at', limit: 300 })
   const bags = useRows('bags', { select: 'batch_id, status, weight_kg', limit: 5000 })
@@ -47,7 +49,7 @@ export default function Batches() {
 
   const fields = [
     { name: 'mill_id', label: 'Mill', type: 'select', required: true, options: opts(mills.rows) },
-    { name: 'grade_id', label: 'Grade / mesh', type: 'select', required: true, options: opts(grades.rows) },
+    ...gradeMeshFields(grades.rows, meshes.rows),
     { name: 'mill_run_id', label: 'Mill run (optional)', type: 'select', options: opts(runs.rows, (r) => `${r.mills?.name ?? ''} - ${fmtDateTime(r.started_at)}`) },
     { name: 'inbound_lot_no', label: 'Quartz lot no. used', datalist: lotList, hint: 'Pick from the lots weighed in, or type one.' },
     { name: 'produced_on', label: 'Production date', type: 'date' },
@@ -70,7 +72,7 @@ export default function Batches() {
     <DataPage
       title="Batches"
       table="batches"
-      select="*, mills(name), grades(name, spec_min_sio2, spec_max_fe2o3, spec_max_moisture, spec_min_whiteness)"
+      select="*, mills(name), grades(name, spec_min_sio2, spec_max_fe2o3, spec_max_moisture, spec_min_whiteness), grade_meshes(mesh, spec_min_sio2, spec_max_fe2o3, spec_max_moisture, spec_min_whiteness)"
       dateField="produced_on"
       fields={fields}
       defaults={{ produced_on: new Date().toLocaleDateString('en-CA') }}
@@ -80,7 +82,7 @@ export default function Batches() {
         { label: 'Batch', render: (r) => <strong>{r.batch_no}</strong> },
         { label: 'Date', render: (r) => fmtDate(r.produced_on) },
         { label: 'Mill', render: (r) => r.mills?.name },
-        { label: 'Grade', render: (r) => r.grades?.name },
+        { label: 'Grade / mesh', render: (r) => gradeLabel(r.grades, r.grade_meshes) },
         { label: 'Lot', key: 'inbound_lot_no' },
         { label: 'Whiteness', render: (r) => r.whiteness_pct ?? '-' },
         { label: 'SiO2', render: (r) => r.sio2_pct ?? '-' },
@@ -90,7 +92,7 @@ export default function Batches() {
           label: 'Quality',
           render: (r) => {
             if (r.qc_hold) return <Badge tone="red">on hold</Badge>
-            const c = checkSpec(r, effectiveSpec(null, r.grades))
+            const c = checkSpec(r, effectiveSpec(null, r.grades, r.grade_meshes))
             if (!c.limited) return '-'
             if (c.fails.length) return <Badge tone="red" >out of limits</Badge>
             if (c.untested.length) return <Badge tone="amber">not tested</Badge>

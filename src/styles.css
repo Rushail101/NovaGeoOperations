@@ -204,7 +204,7 @@ tfoot td { background: var(--raised); font-weight: 500; }
 .form { display: grid; gap: 12px; }
 .form.grid2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .form.grid2 > .wide, .form.grid2 > .error, .form.grid2 > .row { grid-column: 1 / -1; }
-.form label { display: grid; gap: 4px; min-width: 0; }
+.form label { display: grid; gap: 4px; min-width: 0; align-content: start; }
 .form label > span { color: var(--muted); font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
 .form label.check { grid-template-columns: auto 1fr; align-items: center; gap: 10px; }
 input, select, textarea {
@@ -280,3 +280,11 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent-ink); out
 .install.show { display: inline-flex; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: var(--line); border-radius: 99px; border: 2px solid var(--bg); }
+
+/* ---------- v4 ---------- */
+.thumb.pdf { width: auto; min-width: 64px; max-width: 170px; padding: 0 28px 0 10px; }
+.thumb.pdf a { display: flex; align-items: center; gap: 6px; color: var(--ink); text-decoration: none; font-size: 12.5px; overflow: hidden; }
+.thumb.pdf a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filecard { display: flex; flex-direction: column; align-items: center; gap: 8px; justify-content: center; padding: 18px 10px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); text-decoration: none; text-align: center; word-break: break-word; font-size: 13px; }
+.filecard:hover { border-color: var(--accent-ink); }
+.flag { color: var(--red); font-weight: 500; }
