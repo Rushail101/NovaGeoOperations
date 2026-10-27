@@ -3,7 +3,8 @@ import { FileDown, Eye } from 'lucide-react'
 import { supabase } from '../supabase.js'
 import { useAuth } from '../auth.jsx'
 import { fmtDate, fmtDateTime } from '../lib.jsx'
-import { computeDue } from './Maintenance.jsx'
+import { computeDue } from '../due.js'
+import { checkSpec, effectiveSpec } from '../spec.js'
 import { liningProjection } from './Lining.jsx'
 
 const n = (x, d = 2) => (x == null || x === '' ? '-' : Number(x).toLocaleString('en-IN', { maximumFractionDigits: d }))
@@ -34,7 +35,14 @@ export const REPORTS = [
     ranged: true,
     async build(p) {
       const runs = must(await supabase.from('mill_runs').select('*, mills(name), grades(name), orders(order_no)').gte('started_at', p.fromIso).lte('started_at', p.toIso).order('started_at'))
+      const [dt, dust] = await Promise.all([
+        supabase.from('downtime').select('*, mills(name)').gte('started_at', p.fromIso).lte('started_at', p.toIso).order('started_at').then(must),
+        supabase.from('dust_logs').select('*').gte('logged_on', p.from).lte('logged_on', p.to).then(must),
+      ])
+      const reasons = { power_cut: 'Power cut', breakdown: 'Breakdown', no_material: 'No material', cleaning: 'Cleaning', changeover: 'Grade changeover', other: 'Other' }
       const feed = sum(runs, (r) => r.feed_kg), out = sum(runs, (r) => r.output_kg)
+      const dustKg = sum(dust, (d) => d.qty_kg)
+      const lossKg = feed - out - dustKg
       const kRuns = runs.filter((r) => r.kwh_used != null && r.output_kg > 0)
       const kwhT = kRuns.length ? sum(kRuns, (r) => r.kwh_used) / (sum(kRuns, (r) => r.output_kg) / 1000) : null
       return {
@@ -43,6 +51,7 @@ export const REPORTS = [
         summary: [
           ['Mill runs', runs.length], ['Run-hours', n(sum(runs, (r) => r.hours))], ['Feed', `${n(feed)} kg`],
           ['Powder produced', `${n(out)} kg`], ['Yield', feed > 0 ? `${n((out / feed) * 100, 1)} %` : '-'], ['Power per tonne', kwhT != null ? `${n(kwhT, 0)} kWh/t` : '-'],
+          ['Dust and fines collected', `${n(dustKg)} kg`], ['Unaccounted loss (feed - output - dust)', feed > 0 ? `${n(lossKg)} kg (${n((lossKg / feed) * 100, 1)} %)` : '-'], ['Downtime logged', `${n(sum(dt, (d) => d.hours))} h`],
         ],
         sections: [
           {
@@ -53,6 +62,25 @@ export const REPORTS = [
               const kr = rs.filter((r) => r.kwh_used != null && r.output_kg > 0)
               return [m, rs.length, n(sum(rs, (r) => r.hours)), n(f), n(o), f > 0 ? n((o / f) * 100, 1) : '-', kr.length ? n(sum(kr, (r) => r.kwh_used) / (sum(kr, (r) => r.output_kg) / 1000), 0) : '-']
             }),
+          },
+          {
+            heading: 'By shift',
+            columns: [C('Shift'), R('Runs'), R('Run-hours'), R('Feed (kg)'), R('Output (kg)'), R('Yield %')],
+            rows: group(runs, (r) => r.shift || 'not recorded').sort((a, b) => String(a[0]).localeCompare(String(b[0]))).map(([sh, rs]) => {
+              const f = sum(rs, (r) => r.feed_kg), o = sum(rs, (r) => r.output_kg)
+              return [sh, rs.length, n(sum(rs, (r) => r.hours)), n(f), n(o), f > 0 ? n((o / f) * 100, 1) : '-']
+            }),
+          },
+          {
+            heading: 'Downtime by reason',
+            columns: [C('Reason'), R('Stops'), R('Hours')],
+            rows: group(dt, (d) => reasons[d.reason]).map(([r, ds]) => [r, ds.length, n(sum(ds, (d) => d.hours))]),
+            foot: ['Total', dt.length, n(sum(dt, (d) => d.hours))],
+          },
+          {
+            heading: 'Dust and fines',
+            columns: [C('Went to'), R('Kg')],
+            rows: group(dust, (d) => d.disposition).map(([k, ds]) => [k, n(sum(ds, (d) => d.qty_kg))]),
           },
           {
             heading: 'Run details',
@@ -100,7 +128,7 @@ export const REPORTS = [
       return {
         title: 'Dispatch report',
         subtitle: period(p),
-        summary: [['Trucks', w.length], ['Bags dispatched', sum(w, (r) => cnt[r.id])], ['Net dispatched', `${n(sum(w, (r) => r.net_kg))} kg`]],
+        summary: [['Trucks', w.length], ['Bags dispatched', sum(w, (r) => cnt[r.id])], ['Net dispatched', `${n(sum(w, (r) => r.net_kg))} kg`], ['Trucks without an invoice number', w.filter((r) => !r.invoice_no).length]],
         sections: [
           {
             heading: 'By customer',
@@ -109,9 +137,9 @@ export const REPORTS = [
           },
           {
             heading: 'Loads',
-            columns: [C('When'), C('Slip'), C('Customer'), C('Order'), C('Vehicle'), R('Bags'), R('Net (kg)')],
-            rows: w.map((r) => [fmtDateTime(r.weighed_at), 'D-' + r.id.slice(0, 8).toUpperCase(), r.orders?.customers?.name || '-', r.orders?.order_no || '-', r.vehicle_no || '-', cnt[r.id] || 0, n(r.net_kg)]),
-            foot: ['Total', '', '', '', '', sum(w, (r) => cnt[r.id]), n(sum(w, (r) => r.net_kg))],
+            columns: [C('When'), C('Slip'), C('Customer'), C('Order'), C('Vehicle'), C('Invoice'), C('E-way bill'), R('Bags'), R('Net (kg)')],
+            rows: w.map((r) => [fmtDateTime(r.weighed_at), 'D-' + r.id.slice(0, 8).toUpperCase(), r.orders?.customers?.name || '-', r.orders?.order_no || '-', r.vehicle_no || '-', r.invoice_no || 'MISSING', r.eway_bill_no || '-', cnt[r.id] || 0, n(r.net_kg)]),
+            foot: ['Total', '', '', '', '', '', '', sum(w, (r) => cnt[r.id]), n(sum(w, (r) => r.net_kg))],
           },
         ],
       }
@@ -162,6 +190,76 @@ export const REPORTS = [
           columns: [C('Order'), C('Date'), C('Customer'), C('Grade'), R('Ordered (kg)'), R('Dispatched (kg)'), R('Pending (kg)'), C('Due'), C('Status')],
           rows: o.map((r) => [r.order_no, fmtDate(r.created_at), r.customers?.name || '-', r.grades?.name || '-', n(r.qty_kg), n(pr[r.id]?.dispatched_kg ?? 0), n(pr[r.id]?.pending_kg ?? r.qty_kg), r.due_date ? fmtDate(r.due_date) : '-', r.status.replace('_', ' ')]),
         }],
+      }
+    },
+  },
+  {
+    id: 'quality',
+    title: 'Quality and whiteness report',
+    desc: 'Lab results per batch: whiteness, SiO2, Fe2O3, moisture, pass rate against spec and QC holds.',
+    ranged: true,
+    async build(p) {
+      const b = must(await supabase.from('batches').select('*, mills(name), grades(*)').gte('produced_on', p.from).lte('produced_on', p.to).order('produced_on'))
+      const tested = b.filter((x) => x.whiteness_pct != null)
+      const avg = (rows, f) => (rows.length ? sum(rows, f) / rows.length : null)
+      const verdict = (x) => {
+        const c = checkSpec(x, effectiveSpec(null, x.grades))
+        return !c.limited ? 'no limits set' : c.fails.length ? 'FAIL' : c.untested.length ? 'untested' : 'pass'
+      }
+      const checked = b.filter((x) => verdict(x) !== 'no limits set' && verdict(x) !== 'untested')
+      const passed = checked.filter((x) => verdict(x) === 'pass')
+      return {
+        title: 'Quality and whiteness report',
+        subtitle: period(p),
+        summary: [
+          ['Batches', b.length], ['Whiteness tested', `${tested.length} of ${b.length}`], ['Average whiteness', avg(tested, (x) => x.whiteness_pct) != null ? `${n(avg(tested, (x) => x.whiteness_pct), 1)} %` : '-'],
+          ['Pass rate against grade limits', checked.length ? `${n((passed.length / checked.length) * 100, 0)} % (${passed.length} of ${checked.length})` : '-'], ['On QC hold now', b.filter((x) => x.qc_hold).length],
+        ],
+        sections: [
+          {
+            heading: 'By grade',
+            columns: [C('Grade'), R('Batches'), R('Avg whiteness %'), R('Min whiteness %'), R('Avg SiO2 %'), R('Avg Fe2O3 %')],
+            rows: group(b, (x) => x.grades?.name).map(([g, rs]) => {
+              const t = rs.filter((x) => x.whiteness_pct != null)
+              const mn = t.length ? Math.min(...t.map((x) => Number(x.whiteness_pct))) : null
+              return [g, rs.length, n(avg(t, (x) => x.whiteness_pct), 1), n(mn, 1), n(avg(rs.filter((x) => x.sio2_pct != null), (x) => x.sio2_pct), 2), n(avg(rs.filter((x) => x.fe2o3_pct != null), (x) => x.fe2o3_pct), 3)]
+            }),
+          },
+          {
+            heading: 'By mill',
+            columns: [C('Mill'), R('Batches'), R('Avg whiteness %'), R('Avg Fe2O3 %')],
+            rows: group(b, (x) => x.mills?.name).map(([m, rs]) => [m, rs.length, n(avg(rs.filter((x) => x.whiteness_pct != null), (x) => x.whiteness_pct), 1), n(avg(rs.filter((x) => x.fe2o3_pct != null), (x) => x.fe2o3_pct), 3)]),
+          },
+          {
+            heading: 'Batches',
+            columns: [C('Batch'), C('Date'), C('Mill'), C('Grade'), C('Lot'), R('Whiteness %'), R('SiO2 %'), R('Fe2O3 %'), R('Moisture %'), C('Result'), C('Hold')],
+            rows: b.map((x) => [x.batch_no, fmtDate(x.produced_on), x.mills?.name || '-', x.grades?.name || '-', x.inbound_lot_no || '-', n(x.whiteness_pct, 1), n(x.sio2_pct, 2), n(x.fe2o3_pct, 3), n(x.moisture_pct), verdict(x), x.qc_hold ? x.hold_reason || 'ON HOLD' : '']),
+          },
+        ],
+      }
+    },
+  },
+  {
+    id: 'spares',
+    title: 'Spares and consumables',
+    desc: 'Stock against reorder levels, and what was used on each mill.',
+    ranged: true,
+    async build(p) {
+      const [items, moves] = await Promise.all([
+        supabase.from('spare_stock').select('*').order('name').then(must),
+        supabase.from('spare_moves').select('*, spare_items(name, unit, category), mills(name)').gte('moved_at', p.fromIso).lte('moved_at', p.toIso).order('moved_at').then(must),
+      ])
+      const low = items.filter((i) => i.active && Number(i.reorder_level) > 0 && Number(i.on_hand) <= Number(i.reorder_level))
+      const out = moves.filter((m) => m.kind === 'out')
+      return {
+        title: 'Spares and consumables',
+        subtitle: period(p) + ' (movements); stock is as of now',
+        summary: [['Items', items.filter((i) => i.active).length], ['At or below reorder level', low.length], ['Issues in period', out.length]],
+        sections: [
+          { heading: 'Stock now', columns: [C('Item'), C('Category'), R('On hand'), C('Unit'), R('Reorder at'), C('Status')], rows: items.filter((i) => i.active).map((i) => [i.name, i.category.replace('_', ' '), n(i.on_hand), i.unit, n(i.reorder_level), low.includes(i) ? 'REORDER' : 'ok']) },
+          { heading: 'Used in period, by item', columns: [C('Item'), C('Mill'), R('Quantity')], rows: group(out, (m) => `${m.spare_items?.name}|${m.mills?.name || 'no mill noted'}`).map(([k, rs]) => { const [i, m] = k.split('|'); return [i, m, `${n(sum(rs, (r) => r.qty))} ${rs[0].spare_items?.unit || ''}`] }) },
+          { heading: 'Movements', columns: [C('When'), C('Item'), C('Type'), R('Qty'), C('Mill'), C('Supplier / bill')], rows: moves.map((m) => [fmtDateTime(m.moved_at), m.spare_items?.name || '-', m.kind, n(m.qty), m.mills?.name || '-', [m.supplier, m.ref_no].filter(Boolean).join(' / ') || '-']) },
+        ],
       }
     },
   },

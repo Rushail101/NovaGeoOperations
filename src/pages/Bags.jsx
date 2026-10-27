@@ -1,9 +1,12 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '../supabase.js'
 import { useAuth } from '../auth.jsx'
 import { canPack, can } from '../perms.js'
 import { useRows, fmtKg, fmtDate, fmtDateTime, Badge } from '../lib.jsx'
 import { openPrintWindow, printLabels } from '../print.js'
+import { OutboxList } from '../Outbox.jsx'
+import { enqueue, takeBagNumbers, indexAddBags, ensureBagBlock, bagNumbersLeft, isOnline, noteNetwork, isNetworkError } from '../offline.js'
+import { toast } from '../lib.jsx'
 import Scanner from '../Scanner.jsx'
 
 const tone = { in_stock: 'green', dispatched: 'grey', rejected: 'red' }
@@ -18,36 +21,55 @@ const labelOf = (b) => ({
 })
 
 function PackForm({ onDone }) {
-  const batches = useRows('batches', { select: 'id, batch_no, grades(name)', order: 'created_at', limit: 100 })
-  const [v, setV] = useState({ batch: '', type: 'bag', weight: '25', count: '10', print: true, layout: 'sheet' })
+  const batches = useRows('batches', {
+    select: 'id, batch_no, grade_id, qc_hold, sio2_pct, fe2o3_pct, moisture_pct, whiteness_pct, grades(name)',
+    order: 'created_at',
+    limit: 100,
+  })
+  const [v, setV] = useState({ batch: '', type: 'bag', weight: '25', count: '10', each: false, list: '', print: true, layout: 'sheet' })
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
+  const [left, setLeft] = useState(null)
   const set = (k, x) => setV((p) => ({ ...p, [k]: x }))
+  useEffect(() => { bagNumbersLeft().then(setLeft) }, [busy])
+
+  const each = v.each || v.type === 'jumbo'
+  const parsed = each ? v.list.split(/[\s,;]+/).filter(Boolean).map(Number) : []
+  const weights = each ? parsed : Array.from({ length: Number(v.count) || 0 }, () => Number(v.weight))
+  const badList = each && (parsed.length === 0 || parsed.some((x) => !(x > 0)))
 
   async function submit(e) {
     e.preventDefault()
     setErr(null)
+    if (badList || !weights.length) return setErr('Enter the weight of each bag, separated by spaces, commas or new lines.')
+    if (weights.length > 500) return setErr('At most 500 bags at a time.')
     setBusy(true)
     const w = v.print ? openPrintWindow('Bag labels') : null
-    const { data, error } = await supabase.rpc('create_bags', {
-      p_batch: v.batch,
-      p_type: v.type,
-      p_weight: Number(v.weight),
-      p_count: Number(v.count),
-    })
-    setBusy(false)
-    if (error) {
+    const batch = batches.rows.find((x) => x.id === v.batch)
+    try {
+      let made = null
+      if (isOnline()) {
+        const { data, error } = await supabase.rpc('create_bags_weights', { p_batch: v.batch, p_type: v.type, p_weights: weights })
+        noteNetwork(error)
+        if (error && !isNetworkError(error)) throw error
+        if (!error) made = data
+      }
+      if (!made) {
+        // no signal: use bag numbers reserved on this device and send them later
+        const nos = await takeBagNumbers(weights.length)
+        made = weights.map((wt, i) => ({ id: nos[i], bag_no: nos[i], bag_type: v.type, weight_kg: wt, batch_id: v.batch, status: 'in_stock', packed_at: new Date().toISOString(), batches: batch }))
+        await enqueue({ kind: 'rpc', fn: 'create_bags_numbered', args: { p_batch: v.batch, p_type: v.type, p_weights: weights, p_bag_nos: nos }, label: `Packed ${nos.length} ${v.type} bags (${nos[0]} to ${nos[nos.length - 1]}) from ${batch?.batch_no}` })
+        await indexAddBags(made)
+        toast('No connection. Bags saved on this device and numbered; they will be sent when online.')
+      }
+      if (w) await printLabels(w, made.map((x) => labelOf({ ...x, batches: batch })), { layout: v.layout })
+      ensureBagBlock()
+      onDone()
+    } catch (ex) {
       w?.close()
-      return setErr(error.message)
+      setErr(ex.message)
     }
-    const b = batches.rows.find((x) => x.id === v.batch)
-    if (w)
-      await printLabels(
-        w,
-        data.map((x) => ({ ...labelOf({ ...x, batches: b }) })),
-        { layout: v.layout }
-      )
-    onDone()
+    setBusy(false)
   }
 
   return (
@@ -57,7 +79,7 @@ function PackForm({ onDone }) {
         <label><span>Batch</span>
           <select required value={v.batch} onChange={(e) => set('batch', e.target.value)}>
             <option value="">-</option>
-            {batches.rows.map((b) => <option key={b.id} value={b.id}>{b.batch_no} - {b.grades?.name}</option>)}
+            {batches.rows.map((b) => <option key={b.id} value={b.id}>{b.batch_no} - {b.grades?.name}{b.qc_hold ? ' (on hold)' : ''}</option>)}
           </select>
         </label>
         <label><span>Type</span>
@@ -65,9 +87,16 @@ function PackForm({ onDone }) {
             <option value="bag">Bag</option><option value="jumbo">Jumbo bag</option>
           </select>
         </label>
-        <label><span>Weight per bag (kg)</span><input type="number" step="any" required value={v.weight} onChange={(e) => set('weight', e.target.value)} /></label>
-        <label><span>How many bags</span><input type="number" min="1" max="500" required value={v.count} onChange={(e) => set('count', e.target.value)} /></label>
+        {!each && <label><span>Weight per bag (kg)</span><input type="number" step="any" required value={v.weight} onChange={(e) => set('weight', e.target.value)} /></label>}
+        {!each && <label><span>How many bags</span><input type="number" min="1" max="500" required value={v.count} onChange={(e) => set('count', e.target.value)} /></label>}
       </div>
+      {v.type === 'bag' && <label className="check"><input type="checkbox" checked={v.each} onChange={(e) => set('each', e.target.checked)} /><span>Weigh each bag separately</span></label>}
+      {each && (
+        <label><span>Actual weight of each bag (kg): one per bag, separated by spaces, commas or new lines</span>
+          <textarea rows={3} value={v.list} onChange={(e) => set('list', e.target.value)} placeholder="1002 998.5 1011" />
+          <small className="muted">{parsed.length} bags, {parsed.reduce((a, x) => a + (x || 0), 0).toLocaleString('en-IN')} kg</small>
+        </label>
+      )}
       <div className="row" style={{ alignItems: 'center', flexWrap: 'wrap' }}>
         <label className="check"><input type="checkbox" checked={v.print} onChange={(e) => set('print', e.target.checked)} /><span>Print QR labels now</span></label>
         <select style={{ width: 'auto' }} value={v.layout} onChange={(e) => set('layout', e.target.value)}>
@@ -76,7 +105,10 @@ function PackForm({ onDone }) {
         </select>
       </div>
       {err && <div className="error">{err}</div>}
-      <div className="row"><button className="btn primary" disabled={busy}>{busy ? 'Creating...' : 'Create bags'}</button></div>
+      <div className="row" style={{ alignItems: 'center' }}>
+        <button className="btn primary" disabled={busy || !v.batch}>{busy ? 'Creating...' : `Create ${weights.length || ''} bags`}</button>
+        {left != null && <span className="muted">{left} bag numbers ready for offline use</span>}
+      </div>
     </form>
   )
 }
@@ -163,6 +195,7 @@ export default function Bags() {
     <section>
       <div className="head"><h2>Bags</h2></div>
       {canPack(role) && <PackForm onDone={reload} />}
+      <OutboxList filter={(i) => i.fn === 'create_bags_numbered'} title="Bags packed offline, waiting to send" />
       <Trace />
       <div className="row" style={{ flexWrap: 'wrap', margin: '10px 0', alignItems: 'center' }}>
         <div className="tabs">

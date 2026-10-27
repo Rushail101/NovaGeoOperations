@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { DataPage } from '../lib.jsx'
+import { SPEC_FIELDS, specFormFields } from '../spec.js'
 
 const configs = {
   Mills: {
@@ -51,11 +52,12 @@ const configs = {
     columns: [
       { label: 'Grade', key: 'name' },
       { label: 'Mesh', key: 'mesh' },
-      { label: 'Notes', key: 'notes' },
+      { label: 'Standard limits', render: (r) => SPEC_FIELDS.filter((f) => r[f.col] != null).map((f) => `${f.short} ${f.dir === 'min' ? '>=' : '<='} ${r[f.col]}`).join(', ') || '-' },
     ],
     fields: [
       { name: 'name', label: 'Grade name', required: true },
       { name: 'mesh', label: 'Mesh' },
+      ...specFormFields('Standard: '),
       { name: 'notes', label: 'Notes', type: 'textarea' },
     ],
   },

@@ -76,7 +76,9 @@ export function printDispatchSlip(w, slip) {
   </style></head><body>
     <h1>${esc(slip.company)}</h1><div class="sub">Dispatch slip &nbsp;|&nbsp; ${esc(slip.no)} &nbsp;|&nbsp; ${esc(slip.date)}</div>
     <table class="meta"><tr><td><b>Customer</b></td><td>${esc(slip.customer)}</td><td><b>Order</b></td><td>${esc(slip.order_no)}</td></tr>
-    <tr><td><b>Vehicle</b></td><td>${esc(slip.vehicle)}</td><td><b>Grade</b></td><td>${esc(slip.grade)}</td></tr></table>
+    <tr><td><b>Vehicle</b></td><td>${esc(slip.vehicle)}</td><td><b>Grade</b></td><td>${esc(slip.grade)}</td></tr>
+    <tr><td><b>Invoice no.</b></td><td>${esc(slip.invoice_no || '')}</td><td><b>E-way bill no.</b></td><td>${esc(slip.eway_bill_no || '')}</td></tr>
+    <tr><td><b>Transporter</b></td><td>${esc(slip.transporter || '')}</td><td><b>LR no.</b></td><td>${esc(slip.lr_no || '')}</td></tr></table>
     <table><tr><th>Gross (kg)</th><th>Tare (kg)</th><th>Net weighed (kg)</th><th>Bags</th><th>Bag total (kg)</th></tr>
     <tr><td>${kg(slip.gross)}</td><td>${kg(slip.tare)}</td><td><b>${kg(slip.net)}</b></td><td>${slip.bags.length}</td><td>${kg(slip.bag_total)}</td></tr></table>
     ${slip.bags.length ? `<table><tr><th>#</th><th>Bag no.</th><th>Batch</th><th class="r">Weight (kg)</th></tr>${rows}</table>

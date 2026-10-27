@@ -1,4 +1,5 @@
 import { DataPage, useRows, opts, fmtDate, Badge } from '../lib.jsx'
+import { PhotoLink } from '../PhotoField.jsx'
 
 const conds = [
   { value: 'good', label: 'Good' },
@@ -44,6 +45,7 @@ export default function Lining() {
     { name: 'iron_contamination_noted', label: 'Shell exposed / rust stain in powder', type: 'checkbox' },
     { name: 'condition', label: 'Overall condition', type: 'select', required: true, options: conds },
     { name: 'notes', label: 'Notes', type: 'textarea' },
+    { name: 'photo_urls', label: 'Photos of the lining (needs signal)', type: 'photos', folder: 'lining' },
   ]
 
   const all = useRows('lining_inspections', { select: 'mill_id, min_thickness_mm, mill_hours_at_inspection', order: 'inspected_at' })
@@ -81,6 +83,9 @@ export default function Lining() {
       table="lining_inspections"
       select="*, mills(name)"
       order="inspected_at"
+      offline
+      dateField="inspected_at"
+      offlineLabel={(p) => `Lining inspection (${p.condition})`}
       fields={fields}
       defaults={{ inspected_at: new Date().toISOString().slice(0, 10), condition: 'good' }}
       extra={extra}
@@ -95,6 +100,7 @@ export default function Lining() {
         { label: 'Stone loss', render: (r) => yn(r.stone_loss_noted) },
         { label: 'Iron', render: (r) => yn(r.iron_contamination_noted) },
         { label: 'Condition', render: (r) => <Badge tone={tone[r.condition]}>{r.condition.replace('_', ' ')}</Badge> },
+        { label: 'Photos', render: (r) => <PhotoLink paths={r.photo_urls} /> },
       ]}
     />
   )

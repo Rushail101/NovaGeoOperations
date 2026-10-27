@@ -18,6 +18,7 @@ export default function Runs() {
     { name: 'kwh_end', label: 'Energy meter at end (kWh)', type: 'number' },
     { name: 'feed_kg', label: 'Feed (kg)', type: 'number' },
     { name: 'output_kg', label: 'Output (kg)', type: 'number' },
+    { name: 'shift', label: 'Shift', type: 'select', options: ['A', 'B', 'C'].map((x) => ({ value: x, label: x })) },
     { name: 'operator', label: 'Operator' },
     { name: 'notes', label: 'Notes', type: 'textarea' },
   ]
@@ -39,6 +40,9 @@ export default function Runs() {
       table="mill_runs"
       select="*, mills(name), grades(name), orders(order_no)"
       order="started_at"
+      dateField="started_at"
+      offline
+      offlineLabel={(p) => `Mill run: ${fmtKg(p.output_kg)} output`}
       fields={fields}
       defaults={{ started_at: toLocalInput() }}
       extra={extra}
@@ -52,6 +56,7 @@ export default function Runs() {
         { label: 'Yield', render: (r) => (r.feed_kg > 0 && r.output_kg != null ? ((r.output_kg / r.feed_kg) * 100).toFixed(1) + '%' : '-') },
         { label: 'kWh/t', render: (r) => (r.kwh_used != null && r.output_kg > 0 ? (r.kwh_used / (r.output_kg / 1000)).toFixed(0) : '-') },
         { label: 'Order', render: (r) => r.orders?.order_no || '-' },
+        { label: 'Shift', key: 'shift' },
         { label: 'Operator', key: 'operator' },
       ]}
     />

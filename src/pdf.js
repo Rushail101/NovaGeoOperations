@@ -10,7 +10,7 @@ export async function exportReport(report, { user = '', company = 'Nova Geo Reso
   const M = 36
   const INK = [23, 32, 36]
   const MUTED = [86, 100, 105]
-  const ACCENT = [163, 58, 43]
+  const ACCENT = [140, 196, 26]
 
   // letterhead
   doc.setFont('helvetica', 'bold').setFontSize(17).setTextColor(...INK).text(company, M, 44)
@@ -60,7 +60,7 @@ export async function exportReport(report, { user = '', company = 'Nova Geo Reso
       foot: s.foot ? [s.foot] : undefined,
       margin: { left: M, right: M, top: 40, bottom: 40 },
       styles: { fontSize: 8.5, cellPadding: 4, textColor: INK, lineColor: [203, 211, 212], lineWidth: 0.4 },
-      headStyles: { fillColor: [27, 36, 40], textColor: 255, fontStyle: 'bold' },
+      headStyles: { fillColor: [15, 15, 15], textColor: [197, 242, 77], fontStyle: 'bold' },
       footStyles: { fillColor: [230, 233, 233], textColor: INK, fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [247, 248, 248] },
       columnStyles,

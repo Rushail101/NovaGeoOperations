@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import { supabase, configured } from './supabase.js'
+import { kvGet, kvSet, startSync, isNetworkError } from './offline.js'
 
 const Ctx = createContext(null)
 export const useAuth = () => useContext(Ctx)
@@ -31,9 +32,12 @@ export function AuthProvider({ children }) {
       .select('*')
       .eq('id', uid)
       .maybeSingle()
-      .then(({ data }) => {
-        setProfile(data)
+      .then(async ({ data, error }) => {
+        if (error && isNetworkError(error)) data = await kvGet('profile:' + uid) // opened with no signal
+        else if (data) kvSet('profile:' + uid, data)
+        setProfile(data || null)
         setProfileLoading(false)
+        if (data) startSync()
       })
   }, [uid])
 

@@ -1,34 +1,33 @@
-# BallMill Ops
+# BallMill Ops (Nova Geo Resources)
 
-Operations-only ERP for the ball mill plant: orders, weighments, mill runs, batches, numbered QR bags,
-dispatch by scanning, maintenance, resin lining wear, roles with PINs and an audit trail. No finance.
+Operations-only ERP for the ball mill plant: orders, weighments, mill runs, batches and lab results, QR-labelled bags, dispatch with invoice / e-way bill, maintenance, resin lining, spares, plant log. Finance stays in the separate ERP. React + Vite + Supabase, hosted on Render.
 
-## Set up (new project)
-1. Supabase SQL editor: run `schema.sql`, then `migration_v2.sql`.
-2. Authentication > Users > Add user, for each person: email `username@ops.local`, password = their PIN
-   (6+ characters), tick "Auto Confirm User". The FIRST user created becomes admin.
-3. Open the app, sign in with just `username` and PIN. Admin gives others a role under Team.
-4. Env vars: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (anon key only). Redeploy after changing.
+## 1. Database (Supabase > SQL editor), run in this order
+1. `schema.sql` (only on a brand-new project)
+2. `migration_v2.sql` (roles, audit trail, batches, bags, dispatch)
+3. `migration_v3.sql` (spec checks, invoice/e-way, spares, plant log, offline helpers, photos bucket)
 
-## Upgrading the live app
-1. Run `migration_v2.sql` in the Supabase SQL editor (safe to re-run). Your oldest existing user becomes admin,
-   other existing users become Pending until an admin assigns a role.
-2. Push this code to GitHub; Render rebuilds automatically. Existing admin can still sign in with their full email.
+Each migration can be re-run safely. Then in Authentication > Providers > Email turn **off** "Confirm email". The first person to sign up becomes **admin**; give the admin a long password (12+ characters), not a short PIN.
 
-## Roles
-Admin: everything, including delete, Team and Audit. Supervisor: orders, masters, edits. Weighbridge: weighments and dispatch.
-Operator: mill runs, batches, packing bags. Maintenance: assets, schedules, logs, lining. Viewer: read only.
-Permissions are enforced in the database (row level security), the tabs just follow them.
+## 2. Render
+Static Site. Build command `npm install && npm run build`, publish directory `dist`. Environment variables: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`. Redeploy after changing them.
 
-## Bags and QR
-Bag numbers look like `NG-261027-0042` (IST date + running number). The QR holds only the bag number.
-Phone camera scanning needs https (Render is). A USB barcode scanner also works: click the bag box and scan.
+## 3. Install on phones (works offline)
+- Android / Chrome: open the site, menu > Install app (or the "Install app" button in the side menu).
+- iPhone / Safari: Share > Add to Home Screen.
+Open the app once with signal so it can save itself and your lists on the phone.
 
-## Reports and PDFs
-Reports tab: pick a date range, then View or download a PDF for production, weighments, dispatch, stock, orders,
-maintenance and resin lining. Every list also has a PDF button for exactly what is on screen, and each batch has a
-Certificate button (quality certificate with lab values and bag list).
+## 4. What works with no signal
+Saved on the device and sent automatically when signal returns: weighments, mill runs, packing bags, dispatch, maintenance "mark done", logs, downtime, notes, dust, stock movements. Bag numbers come from a block reserved while online, and the bag list is cached so scanning works offline.
+Needs a connection: editing or deleting existing records, creating batches, photos, reports, team admin. The pill at the top shows Online / Offline and how many entries are waiting.
 
-## Look and feel
-Works on phones (hamburger menu, tables turn into cards, add/edit opens as a bottom sheet). Light and dark themes,
-remembered per device. Fonts are bundled, no Google request.
+## 5. Daily backup and Telegram alerts (GitHub Actions)
+Put this folder in a **private** GitHub repo. Repo > Settings > Secrets and variables > Actions, add:
+`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (Supabase > Project settings > API, the service_role key; never put it in Render or the app),
+`TELEGRAM_BOT_TOKEN` (create a bot with @BotFather), `TELEGRAM_CHAT_ID` (message the bot, then open `https://api.telegram.org/bot<token>/getUpdates`).
+- `backup.yml` runs daily and keeps the JSON backup as a downloadable artifact for 30 days.
+- `alerts.yml` runs every 30 min: overdue maintenance, orders past due, low spares, QC holds, breakdowns, lining repair/relining, mill down over 2 h, and an 8 am IST summary. Each alert is sent once.
+Test locally: `npm run test:tools`. Run by hand: Actions tab > pick workflow > Run workflow.
+
+## 6. Roles
+admin, supervisor, weighbridge, operator, maintenance, viewer. Dispatch weighments are made only through the Dispatch page (admin, supervisor, weighbridge). QC hold is set by admin or supervisor and blocks dispatch of that batch.

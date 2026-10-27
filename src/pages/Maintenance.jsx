@@ -1,41 +1,16 @@
 import { useState } from 'react'
-import { DataPage, useRows, opts, fmtDateTime, toLocalInput, Badge } from '../lib.jsx'
-import { supabase } from '../supabase.js'
+import { DataPage, useRows, opts, fmtDateTime, toLocalInput, Badge, toast } from '../lib.jsx'
+import { useAuth } from '../auth.jsx'
+import { canMarkDone } from '../perms.js'
+import { callRpc, uuid } from '../offline.js'
+import { PhotoLink } from '../PhotoField.jsx'
 
 const kinds = ['mill_lining', 'motor', 'gearbox', 'bearing', 'bag_filter', 'cyclone', 'fan', 'conveyor', 'other'].map(
   (k) => ({ value: k, label: k.replace('_', ' ') })
 )
 
-// Shared due-status calculation (also used by Dashboard)
-export function computeDue(schedules, assets, hours) {
-  const assetMap = Object.fromEntries(assets.map((a) => [a.id, a]))
-  const hrs = Object.fromEntries(hours.map((h) => [h.mill_id, Number(h.total_hours)]))
-  return schedules.map((s) => {
-    const a = assetMap[s.asset_id]
-    const mh = a?.mill_id ? hrs[a.mill_id] ?? 0 : null
-    let state = 'ok'
-    let detail = []
-    if (!s.last_done_at) {
-      state = 'due'
-      detail.push('never done')
-    }
-    if (s.every_days && s.last_done_at) {
-      const days = (Date.now() - new Date(s.last_done_at).getTime()) / 86400000
-      const left = s.every_days - days
-      detail.push(left >= 0 ? `${Math.ceil(left)} d left` : `${Math.ceil(-left)} d overdue`)
-      if (left < 0) state = 'due'
-      else if (left < s.every_days * 0.15 && state === 'ok') state = 'soon'
-    }
-    if (s.every_hours && mh != null) {
-      const used = mh - Number(s.last_done_hours ?? 0)
-      const left = s.every_hours - used
-      detail.push(left >= 0 ? `${left.toFixed(0)} h left` : `${(-left).toFixed(0)} h overdue`)
-      if (left < 0) state = 'due'
-      else if (left < s.every_hours * 0.1 && state === 'ok') state = 'soon'
-    }
-    return { ...s, asset: a, mill_hours: mh, state, detail: detail.join(' | ') }
-  })
-}
+export { computeDue } from '../due.js'
+import { computeDue } from '../due.js'
 
 function DueTab() {
   const schedules = useRows('maintenance_schedules', { select: '*', order: 'task', asc: true })
@@ -46,23 +21,25 @@ function DueTab() {
   )
   const tone = { due: 'red', soon: 'amber', ok: 'green' }
 
+  const { role, name } = useAuth()
+  const [busy, setBusy] = useState(null)
+
   async function markDone(s) {
-    const by = prompt('Done by (name)?') || null
-    const now = new Date().toISOString()
-    const { error: e1 } = await supabase.from('maintenance_logs').insert({
-      asset_id: s.asset_id,
-      schedule_id: s.id,
-      done_at: now,
-      type: 'preventive',
-      description: s.task,
-      done_by: by,
-    })
-    const { error: e2 } = await supabase
-      .from('maintenance_schedules')
-      .update({ last_done_at: now, last_done_hours: s.mill_hours })
-      .eq('id', s.id)
-    if (e1 || e2) alert((e1 || e2).message)
-    schedules.reload()
+    const by = prompt('Done by (name)?', name || '')
+    if (by === null) return
+    setBusy(s.id)
+    try {
+      const res = await callRpc(
+        'mark_maintenance_done',
+        { p_schedule: s.id, p_done_by: by || null, p_mill_hours: s.mill_hours, p_done_at: new Date().toISOString(), p_id: uuid() },
+        `Maintenance done: ${s.asset?.name ?? ''} - ${s.task}`
+      )
+      if (res.queued) toast('No connection. Saved on this device and will be sent automatically.')
+      schedules.reload()
+    } catch (e) {
+      alert(e.message)
+    }
+    setBusy(null)
   }
 
   return (
@@ -90,9 +67,11 @@ function DueTab() {
                   <Badge tone={tone[s.state]}>{s.state}</Badge> <span className="muted">{s.detail}</span>
                 </td>
                 <td className="actions">
-                  <button className="link" onClick={() => markDone(s)}>
-                    Mark done
-                  </button>
+                  {canMarkDone(role) && (
+                    <button className="link" disabled={busy === s.id} onClick={() => markDone(s)}>
+                      Mark done
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
@@ -162,6 +141,9 @@ function LogTab() {
       table="maintenance_logs"
       select="*, assets(name)"
       order="done_at"
+      offline
+      dateField="done_at"
+      offlineLabel={(p) => `Maintenance log: ${p.type}`}
       defaults={{ done_at: toLocalInput(), type: 'preventive' }}
       fields={[
         { name: 'asset_id', label: 'Asset', type: 'select', required: true, options: opts(assets.rows) },
@@ -176,6 +158,7 @@ function LogTab() {
         { name: 'description', label: 'What was done / what failed', type: 'textarea' },
         { name: 'downtime_hours', label: 'Downtime (hours)', type: 'number' },
         { name: 'done_by', label: 'Done by' },
+        { name: 'photo_paths', label: 'Photos (needs signal)', type: 'photos', folder: 'maintenance' },
       ]}
       columns={[
         { label: 'When', render: (r) => fmtDateTime(r.done_at) },
@@ -184,6 +167,7 @@ function LogTab() {
         { label: 'Details', key: 'description' },
         { label: 'Downtime h', key: 'downtime_hours' },
         { label: 'By', key: 'done_by' },
+        { label: 'Photos', render: (r) => <PhotoLink paths={r.photo_paths} /> },
       ]}
     />
   )

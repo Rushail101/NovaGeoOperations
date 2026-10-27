@@ -27,6 +27,11 @@ const PERMS = {
   lining_inspections: { insert: [A, S, M], update: [A, S, M] },
   batches: { insert: [A, S, O], update: [A, S, O] },
   bags: { insert: [A, S, O], update: [A, S] }, // bags are created through create_bags()
+  spare_items: { insert: [A, S, M], update: [A, S, M] },
+  spare_moves: { insert: [A, S, M, O], update: [A, S] },
+  downtime: { insert: [A, S, O, M], update: [A, S, O, M] },
+  shift_notes: { insert: [A, S, W, O, M], update: [A, S] },
+  dust_logs: { insert: [A, S, O], update: [A, S, O] },
   profiles: { insert: [], update: [A] },
 }
 
@@ -35,6 +40,8 @@ export function can(role, table, action) {
   return (PERMS[table]?.[action] || []).includes(role)
 }
 
+export const canMarkDone = (role) => [A, S, M].includes(role)
+export const canHold = (role) => [A, S].includes(role)
 export const canDispatch = (role) => [A, S, W].includes(role)
 export const canPack = (role) => [A, S, O].includes(role)
 export const isAdmin = (role) => role === A

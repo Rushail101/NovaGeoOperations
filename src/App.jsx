@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import {
   LayoutDashboard, ClipboardList, Scale, Cog, FlaskConical, Package, Truck, Wrench, Layers,
-  Database, Users, ShieldCheck, FileText, Menu, X, Sun, Moon, KeyRound, LogOut, Mountain,
+  Database, Users, ShieldCheck, FileText, Menu, X, Sun, Moon, KeyRound, LogOut, Mountain, Boxes, NotebookPen, Download,
 } from 'lucide-react'
 import { supabase, configured } from './supabase.js'
+import { Toaster } from './lib.jsx'
+import { SyncStatus } from './Outbox.jsx'
 import { AuthProvider, useAuth, toEmail } from './auth.jsx'
 import { ROLE_LABELS, canDispatch, isAdmin } from './perms.js'
 import Dashboard from './pages/Dashboard.jsx'
@@ -15,6 +17,8 @@ import Bags from './pages/Bags.jsx'
 import Dispatch from './pages/Dispatch.jsx'
 import Maintenance from './pages/Maintenance.jsx'
 import Lining from './pages/Lining.jsx'
+import Spares from './pages/Spares.jsx'
+import PlantLog from './pages/PlantLog.jsx'
 import Masters from './pages/Masters.jsx'
 import Reports from './pages/Reports.jsx'
 import Team from './pages/Team.jsx'
@@ -36,6 +40,7 @@ const GROUPS = [
       { name: 'Mill runs', C: Runs, I: Cog },
       { name: 'Batches', C: Batches, I: FlaskConical },
       { name: 'Bags', C: Bags, I: Package },
+      { name: 'Plant log', C: PlantLog, I: NotebookPen },
     ],
   },
   {
@@ -43,6 +48,7 @@ const GROUPS = [
     pages: [
       { name: 'Maintenance', C: Maintenance, I: Wrench },
       { name: 'Lining', C: Lining, I: Layers },
+      { name: 'Spares', C: Spares, I: Boxes },
     ],
   },
   {
@@ -62,13 +68,24 @@ function useTheme() {
       const t = localStorage.getItem('theme')
       if (t) return t
     } catch {}
-    return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+    return 'dark'
   })
   useEffect(() => {
     document.documentElement.dataset.theme = theme
     try { localStorage.setItem('theme', theme) } catch {}
   }, [theme])
   return [theme, () => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))]
+}
+
+function useInstall() {
+  const [evt, setEvt] = useState(null)
+  useEffect(() => {
+    const on = (e) => { e.preventDefault(); setEvt(e) }
+    window.addEventListener('beforeinstallprompt', on)
+    window.addEventListener('appinstalled', () => setEvt(null))
+    return () => window.removeEventListener('beforeinstallprompt', on)
+  }, [])
+  return evt && (async () => { evt.prompt(); await evt.userChoice; setEvt(null) })
 }
 
 function Login() {
@@ -90,7 +107,7 @@ function Login() {
     <div className="login">
       <form className="card form" onSubmit={submit}>
         <div className="brand" style={{ padding: 0, color: 'inherit' }}>
-          <span className="brand-mark"><Mountain size={18} /></span> BallMill Ops
+          <span className="brand-mark"><Mountain size={18} /></span><span>BallMill Ops<small>Nova Geo Resources</small></span>
         </div>
         <label>
           <span>Username</span>
@@ -112,6 +129,7 @@ function Shell() {
   const [theme, toggleTheme] = useTheme()
   const [page, setPage] = useState(() => decodeURIComponent(location.hash.slice(1)) || 'Dashboard')
   const [open, setOpen] = useState(false)
+  const install = useInstall()
 
   useEffect(() => {
     const onHash = () => setPage(decodeURIComponent(location.hash.slice(1)) || 'Dashboard')
@@ -170,15 +188,16 @@ function Shell() {
   return (
     <div className={'shell' + (open ? ' open' : '')}>
       <div className="topbar">
-        <button className="icon-btn" onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={24} /></button>
+        <button className="icon-btn menu-btn" onClick={() => setOpen(true)} aria-label="Open menu"><Menu size={24} /></button>
         <span className="ttl">{current.name}</span>
+        <SyncStatus />
         <button className="icon-btn" onClick={toggleTheme} aria-label="Switch light or dark">{theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}</button>
       </div>
       <div className="scrim" onClick={() => setOpen(false)} />
       <aside className="side" aria-label="Main menu">
         <div className="brand">
-          <span className="brand-mark"><Mountain size={18} /></span> BallMill Ops
-          <button className="icon-btn" style={{ marginLeft: 'auto', color: '#fff', display: open ? 'inline-grid' : 'none' }} onClick={() => setOpen(false)} aria-label="Close menu"><X size={22} /></button>
+          <span className="brand-mark"><Mountain size={18} /></span><span>BallMill Ops<small>Nova Geo Resources</small></span>
+          <button className="icon-btn" style={{ marginLeft: 'auto', color: 'var(--side-ink)', display: open ? 'inline-grid' : 'none' }} onClick={() => setOpen(false)} aria-label="Close menu"><X size={22} /></button>
         </div>
         <nav className="navgroups">
           {groups.map((g, i) => (
@@ -197,11 +216,13 @@ function Shell() {
           <div className="sidebtns">
             <button onClick={toggleTheme}>{theme === 'dark' ? <Sun size={15} /> : <Moon size={15} />} {theme === 'dark' ? 'Light' : 'Dark'}</button>
             <button onClick={changePin}><KeyRound size={15} /> PIN</button>
+            {install && <button onClick={install}><Download size={15} /> Install app</button>}
             <button onClick={() => supabase.auth.signOut()}><LogOut size={15} /> Sign out</button>
           </div>
         </div>
       </aside>
       <main className="content"><Page key={current.name} /></main>
+      <Toaster />
     </div>
   )
 }
