@@ -8,8 +8,8 @@ export function computeDue(schedules, assets, hours) {
     let state = 'ok'
     const detail = []
     if (!s.last_done_at) {
-      state = 'due'
-      detail.push('never done')
+      // nothing entered yet: ask for a date instead of calling it overdue
+      return { ...s, asset: a, mill_hours: mh, state: 'unset', detail: 'enter the date it was last done', next_due: null }
     }
     if (s.every_days && s.last_done_at) {
       const days = (Date.now() - new Date(s.last_done_at).getTime()) / 86400000
@@ -25,6 +25,7 @@ export function computeDue(schedules, assets, hours) {
       if (left < 0) state = 'due'
       else if (left < s.every_hours * 0.1 && state === 'ok') state = 'soon'
     }
-    return { ...s, asset: a, mill_hours: mh, state, detail: detail.join(' | ') }
+    const next_due = s.every_days && s.last_done_at ? new Date(new Date(s.last_done_at).getTime() + s.every_days * 86400000).toISOString() : null
+    return { ...s, asset: a, mill_hours: mh, state, detail: detail.join(' | '), next_due }
   })
 }

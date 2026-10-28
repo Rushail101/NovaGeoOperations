@@ -14,9 +14,9 @@ const ALL_TYPES = [
 ]
 const tone = { inbound: 'blue', mill_feed: 'amber', dispatch: 'green' }
 
-export default function Weighments() {
+export default function Weighments({ only, title = 'Weighments' }) {
   const { role } = useAuth()
-  const [filter, setFilter] = useState('')
+  const [filter, setFilter] = useState(only || '')
   const [papers, setPapers] = useState(null)
   const [reloadKey, setReloadKey] = useState(0)
   const suppliers = useRows('suppliers', { order: 'name', asc: true })
@@ -30,7 +30,7 @@ export default function Weighments() {
   const openOrders = orders.rows.filter((o) => !['dispatched', 'cancelled'].includes(o.status))
   // Truck dispatches with bags are done on the Dispatch tab. Loose (unbagged) dispatch is for admin and supervisor only.
   const bulkOk = ['admin', 'supervisor'].includes(role)
-  const types = ALL_TYPES.filter((t) => t.value !== 'dispatch' || bulkOk)
+  const types = ALL_TYPES.filter((t) => (only ? t.value === only : t.value !== 'dispatch' || bulkOk))
   const canPapers = can(role, 'weighments', 'update') || ['weighbridge'].includes(role)
 
   const net = (v) => (v.gross_kg !== '' && v.gross_kg != null && v.tare_kg !== '' && v.tare_kg != null ? Number(v.gross_kg) - Number(v.tare_kg) : null)
@@ -86,7 +86,7 @@ export default function Weighments() {
     await supabase.from('vehicles').insert({ vehicle_no: no, default_tare_kg: row.tare_kg })
   }
 
-  const extra = (
+  const extra = only ? null : (
     <div className="tabs">
       {[{ value: '', label: 'All' }, ...ALL_TYPES].map((t) => (
         <button key={t.value} className={filter === t.value ? 'on' : ''} onClick={() => setFilter(t.value)}>{t.label}</button>
@@ -98,7 +98,7 @@ export default function Weighments() {
     <>
       <DataPage
         key={filter + reloadKey}
-        title="Weighments"
+        title={title}
         table="weighments"
         select="*, suppliers(name), mills(name), orders(order_no), grades(name), creator:profiles!created_by(full_name, username)"
         order="weighed_at"

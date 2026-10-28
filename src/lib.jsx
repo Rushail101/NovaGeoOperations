@@ -88,6 +88,9 @@ export async function exportList(title, columns, rows, user) {
   await exportReport({ title, subtitle: `${rows.length} records`, sections: [{ columns: cols, rows: body }] }, { user })
 }
 
+// A field wrapper. File fields use a div: a label around the file picker confuses taps on phones.
+const Wrap = ({ as: T = 'label', ...p }) => <T {...p} />
+
 // ---------- form ----------
 export function Form({ fields, initial = {}, onSubmit, onCancel, submitLabel = 'Save', grid = false }) {
   const [v, setV] = useState(initial)
@@ -118,7 +121,7 @@ export function Form({ fields, initial = {}, onSubmit, onCancel, submitLabel = '
       {fields
         .filter((f) => !f.showIf || f.showIf(v))
         .map((f) => (
-          <label key={f.name} className={f.type === 'checkbox' ? 'check' : ['textarea', 'photos', 'docs'].includes(f.type) || f.wide ? 'wide' : ''}>
+          <Wrap key={f.name} as={f.type === 'photos' || f.type === 'docs' ? 'div' : 'label'} className={(f.type === 'checkbox' ? 'check' : ['textarea', 'photos', 'docs'].includes(f.type) || f.wide ? 'wide' : '') + (f.type === 'photos' || f.type === 'docs' ? ' fieldbox' : '')}>
             <span>{f.label}</span>
             {f.type === 'select' ? (
               <select value={v[f.name] ?? ''} required={typeof f.required === 'function' ? f.required(v) : f.required} onChange={(e) => set(f.name, e.target.value)}>
@@ -150,7 +153,7 @@ export function Form({ fields, initial = {}, onSubmit, onCancel, submitLabel = '
             )}
             {f.hint && <small className="muted">{f.hint}</small>}
             {f.hintFn && f.hintFn(v) && <small className="flag">{f.hintFn(v)}</small>}
-          </label>
+          </Wrap>
         ))}
       {err && <div className="error">{err}</div>}
       <div className="row">

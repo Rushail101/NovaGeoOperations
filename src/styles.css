@@ -204,8 +204,8 @@ tfoot td { background: var(--raised); font-weight: 500; }
 .form { display: grid; gap: 12px; }
 .form.grid2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .form.grid2 > .wide, .form.grid2 > .error, .form.grid2 > .row { grid-column: 1 / -1; }
-.form label { display: grid; gap: 4px; min-width: 0; align-content: start; }
-.form label > span { color: var(--muted); font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
+.form label, .form .fieldbox { display: grid; gap: 4px; min-width: 0; align-content: start; }
+.form label > span, .form .fieldbox > span { color: var(--muted); font-family: var(--mono); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; }
 .form label.check { grid-template-columns: auto 1fr; align-items: center; gap: 10px; }
 input, select, textarea {
   background: var(--raised); color: var(--ink); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; width: 100%; min-height: 40px;
@@ -288,3 +288,10 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent-ink); out
 .filecard { display: flex; flex-direction: column; align-items: center; gap: 8px; justify-content: center; padding: 18px 10px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); text-decoration: none; text-align: center; word-break: break-word; font-size: 13px; }
 .filecard:hover { border-color: var(--accent-ink); }
 .flag { color: var(--red); font-weight: 500; }
+.pubcert { max-width: 640px; margin: 0 auto; padding: 18px 16px 60px; }
+.pubhead { display: flex; align-items: center; gap: 10px; font-family: var(--head); font-weight: 800; color: var(--accent-ink); font-size: 18px; margin-bottom: 14px; }
+.pubcert table { white-space: normal; }
+
+.stats.big { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-top: 10px; }
+.stats.big .stat .value { font-size: 34px; }
+@media (max-width: 899px) { .stats.big { grid-template-columns: 1fr; } .stats.big .stat .value { font-size: 30px; } }

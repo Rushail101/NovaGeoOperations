@@ -1,60 +1,46 @@
 import { useEffect, useState } from 'react'
 import {
-  LayoutDashboard, ClipboardList, Scale, Cog, FlaskConical, Package, Truck, Wrench, Layers,
-  Database, Users, ShieldCheck, FileText, Menu, X, Sun, Moon, KeyRound, LogOut, Mountain, Boxes, NotebookPen, Download,
+  LayoutDashboard, ClipboardList, FlaskConical, Package, Truck, Wrench,
+  Database, Users, ShieldCheck, Menu, X, Sun, Moon, KeyRound, LogOut, Mountain, Boxes, NotebookPen, Download,
 } from 'lucide-react'
 import { supabase, configured } from './supabase.js'
 import { Toaster } from './lib.jsx'
 import { SyncStatus } from './Outbox.jsx'
 import { AuthProvider, useAuth, toEmail } from './auth.jsx'
-import { ROLE_LABELS, canDispatch, isAdmin } from './perms.js'
+import { ROLE_LABELS, isAdmin } from './perms.js'
 import Dashboard from './pages/Dashboard.jsx'
 import Orders from './pages/Orders.jsx'
-import Weighments from './pages/Weighments.jsx'
-import Runs from './pages/Runs.jsx'
-import Batches from './pages/Batches.jsx'
+import Shipments from './pages/Shipments.jsx'
+import QC from './pages/QC.jsx'
+import PlantLogs from './pages/PlantLogs.jsx'
 import Bags from './pages/Bags.jsx'
-import Dispatch from './pages/Dispatch.jsx'
 import Maintenance from './pages/Maintenance.jsx'
-import Lining from './pages/Lining.jsx'
 import Spares from './pages/Spares.jsx'
-import PlantLog from './pages/PlantLog.jsx'
+import PublicCertificate from './pages/PublicCertificate.jsx'
 import Masters from './pages/Masters.jsx'
-import Reports from './pages/Reports.jsx'
 import Team from './pages/Team.jsx'
 import Audit from './pages/Audit.jsx'
 
+// Who sees which tab. Admin, supervisor and viewer see everything except the admin-only pages.
+const seen = (...extra) => (r) => ['admin', 'supervisor', 'viewer', ...extra].includes(r)
+
 const GROUPS = [
-  { label: null, pages: [{ name: 'Dashboard', C: Dashboard, I: LayoutDashboard }] },
   {
-    label: 'Sales',
+    label: null,
     pages: [
-      { name: 'Orders', C: Orders, I: ClipboardList },
-      { name: 'Dispatch', C: Dispatch, I: Truck, show: canDispatch },
-    ],
-  },
-  {
-    label: 'Production',
-    pages: [
-      { name: 'Weighments', C: Weighments, I: Scale },
-      { name: 'Mill runs', C: Runs, I: Cog },
-      { name: 'Batches', C: Batches, I: FlaskConical },
-      { name: 'Bags', C: Bags, I: Package },
-      { name: 'Plant log', C: PlantLog, I: NotebookPen },
-    ],
-  },
-  {
-    label: 'Upkeep',
-    pages: [
-      { name: 'Maintenance', C: Maintenance, I: Wrench },
-      { name: 'Lining', C: Lining, I: Layers },
-      { name: 'Spares', C: Spares, I: Boxes },
+      { name: 'Dashboard', C: Dashboard, I: LayoutDashboard },
+      { name: 'Orders', C: Orders, I: ClipboardList, show: seen('weighbridge', 'operator') },
+      { name: 'Shipments', C: Shipments, I: Truck, show: seen('weighbridge') },
+      { name: 'QC', C: QC, I: FlaskConical, show: seen('operator', 'lab') },
+      { name: 'Bags', C: Bags, I: Package, show: seen('operator', 'lab') },
+      { name: 'Plant Logs', C: PlantLogs, I: NotebookPen, show: seen('operator', 'maintenance', 'weighbridge') },
+      { name: 'Maintenance', C: Maintenance, I: Wrench, show: seen('maintenance', 'operator') },
+      { name: 'Spares', C: Spares, I: Boxes, show: seen('maintenance', 'operator') },
     ],
   },
   {
     label: 'Admin',
     pages: [
-      { name: 'Reports', C: Reports, I: FileText },
       { name: 'Masters', C: Masters, I: Database, show: (r) => ['admin', 'supervisor'].includes(r) },
       { name: 'Team', C: Team, I: Users, show: isAdmin },
       { name: 'Audit', C: Audit, I: ShieldCheck, show: isAdmin },
@@ -227,7 +213,18 @@ function Shell() {
   )
 }
 
+const CERT = /^#\/c\/([^/]+)\/([^/]+)\/?$/
+
 export default function App() {
+  const [hash, setHash] = useState(location.hash)
+  useEffect(() => {
+    const on = () => setHash(location.hash)
+    window.addEventListener('hashchange', on)
+    return () => window.removeEventListener('hashchange', on)
+  }, [])
+  // Bag QR codes open a public certificate page: no sign-in
+  const m = hash.match(CERT)
+  if (m) return <PublicCertificate bagNo={decodeURIComponent(m[1])} token={decodeURIComponent(m[2])} />
   return (
     <AuthProvider>
       <Shell />

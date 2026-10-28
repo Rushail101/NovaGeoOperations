@@ -5,7 +5,7 @@ import { useAuth } from '../auth.jsx'
 import { canHold } from '../perms.js'
 import { checkSpec, effectiveSpec } from '../spec.js'
 
-async function certificate(b, user) {
+export async function certificate(b, user) {
   const { data: bags, error } = await supabase.from('bags').select('bag_no, bag_type, weight_kg').eq('batch_id', b.id).neq('status', 'rejected').order('bag_no').limit(2000)
   if (error) return alert(error.message)
   const { exportReport } = await import('../pdf.js')
@@ -25,7 +25,7 @@ async function certificate(b, user) {
       ],
       sections: [{ heading: 'Bags in this batch', columns: [{ header: 'Bag no.' }, { header: 'Type' }, { header: 'Weight (kg)', align: 'right' }], rows: bags.map((x) => [x.bag_no, x.bag_type, kg(x.weight_kg)]) }],
     },
-    { user, filename: `certificate-${b.batch_no}` }
+    { user, filename: `lot-certificate-${b.batch_no}` }
   )
 }
 
@@ -70,14 +70,14 @@ export default function Batches() {
 
   return (
     <DataPage
-      title="Batches"
+      title="Lots (batches)"
       table="batches"
       select="*, mills(name), grades(name, spec_min_sio2, spec_max_fe2o3, spec_max_moisture, spec_min_whiteness), grade_meshes(mesh, spec_min_sio2, spec_max_fe2o3, spec_max_moisture, spec_min_whiteness)"
       dateField="produced_on"
       fields={fields}
       defaults={{ produced_on: new Date().toLocaleDateString('en-CA') }}
       rowActions={(r) => <button className="link" onClick={() => certificate(r, name)}>Certificate</button>}
-      extra={<p className="muted">A batch is one production lot with its lab results. The batch number is generated automatically. Pack its bags on the Bags tab. A supervisor can put a batch on QC hold if a test fails.</p>}
+      extra={<p className="muted">A batch is one production lot. Its lab values are filled in automatically from the newest approved report on the Lab page; type them here only if you have no lab report. Open the Lab reports tab to enter a test, upload an outside lab's report or print a Certificate of Analysis. The batch number is generated automatically. Pack its bags on the Bags tab. A supervisor can put a batch on QC hold if a test fails.</p>}
       columns={[
         { label: 'Batch', render: (r) => <strong>{r.batch_no}</strong> },
         { label: 'Date', render: (r) => fmtDate(r.produced_on) },

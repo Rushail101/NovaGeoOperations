@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../supabase.js'
 import { useAuth } from '../auth.jsx'
-import { useRows, fmtKg, fmtDateTime, gradeLabel, Modal, Form, toast, Badge } from '../lib.jsx'
+import { useRows, fmtKg, fmtDateTime, gradeLabel, bagNoFromScan, Modal, Form, toast, Badge } from '../lib.jsx'
 import { printDispatchSlip } from '../print.js'
 import { OutboxList } from '../Outbox.jsx'
 import { callRpc, lookupBag, indexRemoveBags, uuid, useOnline } from '../offline.js'
@@ -66,7 +66,7 @@ export default function Dispatch() {
   const check = (b) => (spec ? checkSpec(b.batches, spec) : null)
 
   async function addBag(raw) {
-    const no = raw.trim().toUpperCase()
+    const no = bagNoFromScan(raw)
     if (!no) return
     setInput('')
     if (bags.some((b) => b.bag_no === no)) return setMsg({ tone: 'warn', text: `${no} is already on this load` })
@@ -144,7 +144,7 @@ export default function Dispatch() {
 
   return (
     <section>
-      <div className="head"><h2>Dispatch</h2></div>
+      <div className="head"><h2>Outbound shipments</h2></div>
       {!online && <div className="notice">No connection. Scanning uses the bag list saved on this device. The dispatch is sent automatically when the signal returns.</div>}
       <OutboxList filter={(i) => ['dispatch_bags', 'set_dispatch_docs'].includes(i.fn)} title="Dispatches saved offline, waiting to send" />
 

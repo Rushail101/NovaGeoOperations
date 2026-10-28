@@ -161,6 +161,8 @@ function CountTab() {
   )
 }
 
+export { DowntimeTab, NotesTab, DustTab, CountTab }
+
 export default function PlantLog() {
   const [tab, setTab] = useState('Downtime')
   const tabs = { Downtime: DowntimeTab, 'Handover notes': NotesTab, 'Dust & fines': DustTab, 'Stock count': CountTab }

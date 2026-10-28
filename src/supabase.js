@@ -17,3 +17,7 @@ function timeoutFetch(input, init = {}) {
 export const supabase = createClient(url || 'http://localhost', key || 'missing', {
   global: { fetch: timeoutFetch },
 })
+
+// A throw-away client that never stores a session (used to create another person's account without signing the admin out).
+export const isolatedClient = () =>
+  createClient(url || 'http://localhost', key || 'missing', { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } })

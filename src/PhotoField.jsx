@@ -63,16 +63,19 @@ export default function PhotoField({ value = [], onChange, folder, docs = false 
   const online = useOnline()
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState(null)
+  const [done, setDone] = useState(null)
   const urls = useSigned(value)
 
   async function add(files) {
     setBusy(true)
     setErr(null)
+    setDone(null)
     try {
       const added = await uploadFiles(files, folder)
       onChange([...(value || []), ...added])
+      setDone(`${added.length} file${added.length > 1 ? 's' : ''} uploaded. Press Save to keep ${added.length > 1 ? 'them' : 'it'} with this record.`)
     } catch (e) {
-      setErr(isNetworkError(e) ? 'No connection. Files can only be added while online.' : e.message)
+      setErr(isNetworkError(e) ? 'No connection. Files can only be added while online.' : `Upload failed: ${e.message || e.error || JSON.stringify(e)}. An admin can run Team > Check file uploads to find out why.`)
     }
     setBusy(false)
   }
@@ -93,6 +96,7 @@ export default function PhotoField({ value = [], onChange, folder, docs = false 
           onChange={(e) => { const f = [...e.target.files]; e.target.value = ''; if (f.length) add(f) }} />
       </label>
       {!online && <span className="muted">Uploads need a connection.</span>}
+      {done && !err && <div className="ok">{done}</div>}
       {err && <div className="error">{err}</div>}
     </div>
   )

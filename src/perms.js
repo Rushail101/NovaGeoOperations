@@ -8,10 +8,11 @@ export const ROLE_LABELS = {
   weighbridge: 'Weighbridge',
   operator: 'Mill operator / packing',
   maintenance: 'Maintenance',
+  lab: 'Lab technician',
   viewer: 'Viewer (read only)',
   pending: 'Pending (no access)',
 }
-export const ASSIGNABLE_ROLES = ['admin', 'supervisor', 'weighbridge', 'operator', 'maintenance', 'viewer', 'pending']
+export const ASSIGNABLE_ROLES = ['admin', 'supervisor', 'weighbridge', 'operator', 'maintenance', 'lab', 'viewer', 'pending']
 
 const PERMS = {
   mills: { insert: [A, S], update: [A, S] },
@@ -36,7 +37,9 @@ const PERMS = {
   licences: { insert: [A, S], update: [A, S] },
   vehicles: { insert: [A, S, W], update: [A, S, W] },
   stock_counts: { insert: [A, S, O], update: [A, S] },
+  qc_samples: { insert: [A, S, O, 'lab'], update: [A, S, O, 'lab'] },
   plant_settings: { insert: [], update: [A] },
+  lab_reports: { insert: [A, S, 'lab'], update: [A, S, 'lab'] },
   profiles: { insert: [], update: [A] },
 }
 
@@ -45,6 +48,7 @@ export function can(role, table, action) {
   return (PERMS[table]?.[action] || []).includes(role)
 }
 
+export const canApproveLab = (role) => [A, S].includes(role)
 export const canMarkDone = (role) => [A, S, M].includes(role)
 export const canHold = (role) => [A, S].includes(role)
 export const canDispatch = (role) => [A, S, W].includes(role)

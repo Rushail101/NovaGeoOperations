@@ -37,7 +37,7 @@ export async function printLabels(w, bags, { layout = 'sheet', company = 'Nova G
   w = w || open('Bag labels')
   if (!w) return
   const items = await Promise.all(
-    bags.map(async (b) => ({ ...b, qr: await QRCode.toDataURL(b.bag_no, { margin: 0, width: 220, errorCorrectionLevel: 'M' }) }))
+    bags.map(async (b) => ({ ...b, qr: await QRCode.toDataURL(b.cert_url || b.bag_no, { margin: 0, width: 220, errorCorrectionLevel: 'M' }) }))
   )
   const label = (b) => `
     <div class="label">
@@ -46,9 +46,10 @@ export async function printLabels(w, bags, { layout = 'sheet', company = 'Nova G
         <div class="co">${esc(company)}</div>
         <div class="no">${esc(b.bag_no)}</div>
         <div>${esc(b.grade || '')}</div>
-        <div><b>${kg(b.weight_kg)} kg</b> ${b.bag_type === 'jumbo' ? '(jumbo)' : ''}</div>
+        ${b.kind === 'pouch' ? '<div><b>QC SAMPLE 1 kg</b></div>' : `<div><b>${kg(b.weight_kg)} kg</b> ${b.bag_type === 'jumbo' ? '(jumbo)' : ''}</div>`}
         <div class="s">Batch ${esc(b.batch_no || '')}</div>
         <div class="s">${esc(b.packed_on || '')}</div>
+        ${b.cert_url && b.cert_url !== b.bag_no ? '<div class="s">Scan for lab report</div>' : ''}
       </div>
     </div>`
   const css =

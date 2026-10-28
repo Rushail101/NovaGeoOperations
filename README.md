@@ -7,6 +7,9 @@ Operations-only ERP for the ball mill plant: orders, weighments, mill runs, batc
 2. `migration_v2.sql` (roles, audit trail, batches, bags, dispatch)
 3. `migration_v3.sql` (spec checks, invoice/e-way, spares, plant log, offline helpers, photos bucket)
 4. `migration_v4.sql` (mesh sizes, inbound/outbound paperwork, licences, vehicles, stock counts)
+5. `migration_v5a_lab_role.sql` (adds the lab role). **Run this alone, as its own query**, then:
+6. `migration_v5.sql` (lab reports, public bag certificate)
+7. `migration_v6.sql` (QC by bag, 1 kg pouches, standard maintenance checklist, upload storage re-check)
 
 Each migration can be re-run safely. Then in Authentication > Providers > Email turn **off** "Confirm email". The first person to sign up becomes **admin**; give the admin a long password (12+ characters), not a short PIN.
 
@@ -31,7 +34,7 @@ Put this folder in a **private** GitHub repo. Repo > Settings > Secrets and vari
 Test locally: `npm run test:tools`. Run by hand: Actions tab > pick workflow > Run workflow.
 
 ## 6. Roles
-admin, supervisor, weighbridge, operator, maintenance, viewer. Dispatch weighments are made only through the Dispatch page (admin, supervisor, weighbridge). QC hold is set by admin or supervisor and blocks dispatch of that batch.
+admin, supervisor, weighbridge, operator, maintenance, lab, viewer. Dispatch weighments are made only through the Dispatch page (admin, supervisor, weighbridge). QC hold is set by admin or supervisor and blocks dispatch of that batch.
 
 ## 7. Mesh sizes
 Masters > Grades holds the product family (for example "A grade"); Masters > Mesh sizes holds its sizes (200, 325, 500...). Orders, mill runs and batches choose the grade, then the mesh. Limits can be set per grade, per mesh, or per order (order wins, then mesh, then grade). Dispatch warns if a bag's mesh differs from the order's.
@@ -43,3 +46,31 @@ If your grades are currently named like "200 mesh A grade", rename them to "A gr
 - Weighments missing papers show on the dashboard and in the Compliance report; Telegram flags them a day after weighing.
 - Masters > Suppliers holds the mining lease number and expiry, Masters > Licences the plant approvals; both alert at 30 days, 7 days and when expired. Masters > Vehicles remembers usual tare weights. Plant log > Stock count records physical counts against system stock.
 Uploads need signal; the numbers and weights can be saved offline and files attached later.
+
+## 9. Lab reports and bag QR certificates
+- QC > Lab reports: enter results from your own lab, or upload a PDF/photo from an outside lab (or both on one report). A lab technician saves it as a draft, an admin or supervisor approves it, and it is then locked (only admin can reopen).
+- The newest approved report for a batch fills that batch's SiO2, Fe2O3, moisture, whiteness and test date automatically. Removing or reopening the last approved report does not revert those batch values.
+- "Report PDF" on any row makes a Certificate of Analysis against the grade/mesh/order limits.
+- Bag labels now carry a QR that opens `/#/c/<bag>/<token>`: a public page (no login) showing product, batch, lab results and a PDF download. It shows no customer, order or supplier details, and shows "under review" for batches on QC hold. **Reprint labels** to get the new QR; old labels still scan inside the app.
+
+## 10. Users tab (Team)
+Admin > Team: add people (username, name, role, PIN), change roles, reset a PIN, block or unblock. This needs one edge function:
+1. Supabase dashboard > Edge Functions > create a function named `admin-users`, paste `supabase/functions/admin-users/index.ts`, deploy with **Verify JWT on**.
+2. Nothing else to configure: it uses the project's own service key. Only active admins can call it.
+Until it is deployed, the page still lets you change roles of people who signed up themselves; Add person, Reset PIN and Block will say the function is not set up.
+
+## 11. Tabs (v6)
+Dashboard (raw material, shipped out, in stock, plus what needs attention) / Orders / Shipments (inbound quartz, outbound goods with bag scan and weighbridge comparison) / QC (lots, lab reports, 1 kg pouches, PDF reports) / Bags (stock in and out, packing, trace) / Plant Logs (mill runs, mill feed, downtime, handover notes, dust, stock counts) / Maintenance (due list, log, schedules, assets, mill lining) / Spares / Masters / Team / Audit.
+Each role only sees the tabs it needs; admin, supervisor and viewer see all.
+
+## 12. QC pouches and bag-level reports
+- QC > Pouches: pick a lot and create a 1 kg pouch record for every bag (same serial number as the bag), or one bag at a time. Pouch labels carry the same QR as the bag.
+- QC > Lab reports: choose a lot and optionally a bag. A report with a bag selected shows on that bag's QR page; a lot report fills the lot's values and is shown for all other bags of the lot.
+- QC > Reports: PDFs named with the lot and bag numbers (lot certificate, bag certificate, register of all lots).
+
+## 13. Maintenance checklist
+migration_v6.sql loads about 50 standard checks (mills, motors, gearboxes, bearings, bag filter, cyclone, fan, conveyors, magnetic separator, packing, weighbridge, compressor, panels) with usual intervals. Maintenance > Due: enter the date each was last done and the next date appears; tasks without a date show "set date" and are not counted as overdue. Change intervals under Schedules.
+
+## 14. If files do not save with a weighment
+Team > Check file uploads tests the storage bucket step by step and says what to fix. Usual fix: run migration_v4.sql and migration_v6.sql in the Supabase SQL editor, and check Storage shows a "photos" bucket.
+If the `admin-users` function is not deployed, Add person and Block still work (the account is created directly); only Reset PIN needs the function.

@@ -1,9 +1,11 @@
 import { useState } from 'react'
-import { DataPage, useRows, opts, fmtDateTime, toLocalInput, Badge, toast } from '../lib.jsx'
+import { DataPage, useRows, opts, fmtDate, fmtDateTime, toLocalInput, Badge, toast } from '../lib.jsx'
 import { useAuth } from '../auth.jsx'
 import { canMarkDone } from '../perms.js'
 import { callRpc, uuid } from '../offline.js'
 import { PhotoLink } from '../PhotoField.jsx'
+import { supabase } from '../supabase.js'
+import Lining from './Lining.jsx'
 
 const kinds = ['mill_lining', 'motor', 'gearbox', 'bearing', 'bag_filter', 'cyclone', 'fan', 'conveyor', 'other'].map(
   (k) => ({ value: k, label: k.replace('_', ' ') })
@@ -16,13 +18,29 @@ function DueTab() {
   const schedules = useRows('maintenance_schedules', { select: '*', order: 'task', asc: true })
   const assets = useRows('assets')
   const hours = useRows('mill_total_hours')
-  const rows = computeDue(schedules.rows, assets.rows, hours.rows).sort(
-    (a, b) => ['due', 'soon', 'ok'].indexOf(a.state) - ['due', 'soon', 'ok'].indexOf(b.state)
+  const [q, setQ] = useState('')
+  const [show, setShow] = useState('')
+  const order = { due: 0, soon: 1, unset: 2, ok: 3 }
+  const all = computeDue(schedules.rows, assets.rows, hours.rows).sort(
+    (a, b) => order[a.state] - order[b.state] || String(a.next_due || '').localeCompare(String(b.next_due || '')) || String(a.asset?.name).localeCompare(String(b.asset?.name))
   )
-  const tone = { due: 'red', soon: 'amber', ok: 'green' }
+  const rows = all.filter((s) => (!show || s.state === show) && (!q || `${s.asset?.name} ${s.task}`.toLowerCase().includes(q.toLowerCase())))
+  const tone = { due: 'red', soon: 'amber', ok: 'green', unset: 'grey' }
+  const label = { due: 'overdue', soon: 'due soon', ok: 'ok', unset: 'set date' }
+  const count = (st) => all.filter((x) => x.state === st).length
 
   const { role, name } = useAuth()
+  const editable = canMarkDone(role)
   const [busy, setBusy] = useState(null)
+
+  async function setLast(s, d) {
+    if (!d) return
+    setBusy(s.id)
+    const { error } = await supabase.from('maintenance_schedules').update({ last_done_at: new Date(d + 'T12:00:00+05:30').toISOString() }).eq('id', s.id)
+    if (error) alert(error.message)
+    schedules.reload()
+    setBusy(null)
+  }
 
   async function markDone(s) {
     const by = prompt('Done by (name)?', name || '')
@@ -42,10 +60,25 @@ function DueTab() {
     setBusy(null)
   }
 
+  const every = (s) => [s.every_days && `${s.every_days} d`, s.every_hours && `${s.every_hours} h`].filter(Boolean).join(' / ')
   return (
     <section>
-      <h2>What is due</h2>
-      {rows.length === 0 && <p className="muted">Add assets and schedules first.</p>}
+      <h2>Maintenance schedule</h2>
+      <p className="muted">Standard checks and cleaning for a ball mill plant are already listed with a usual interval. Enter the date each one was last done and the next date appears. Change an interval under Schedules.</p>
+      <div className="stats">
+        <div className="stat"><div className="label">Overdue</div><div className="value">{count('due')}</div></div>
+        <div className="stat"><div className="label">Due soon</div><div className="value">{count('soon')}</div></div>
+        <div className="stat"><div className="label">Waiting for a date</div><div className="value">{count('unset')}</div></div>
+      </div>
+      <div className="row" style={{ flexWrap: 'wrap', margin: '10px 0', alignItems: 'center' }}>
+        <div className="tabs">
+          {[['', 'All'], ['due', 'Overdue'], ['soon', 'Due soon'], ['unset', 'Set date'], ['ok', 'OK']].map(([v, l]) => (
+            <button key={v} className={show === v ? 'on' : ''} onClick={() => setShow(v)}>{l}</button>
+          ))}
+        </div>
+        <input style={{ maxWidth: 220 }} placeholder="Search asset or task" value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
+      {all.length === 0 && <p className="muted">No tasks yet. Run migration_v6.sql to load the standard list, or add them under Schedules.</p>}
       <div className="tablewrap">
         <table className="stack">
           <thead>
@@ -53,23 +86,31 @@ function DueTab() {
               <th>Asset</th>
               <th>Task</th>
               <th>Last done</th>
-              <th>Status</th>
+              <th>Next due</th>
               <th />
             </tr>
           </thead>
           <tbody>
             {rows.map((s) => (
               <tr key={s.id}>
-                <td data-label="Asset">{s.asset?.name}</td>
-                <td data-label="Task">{s.task}</td>
-                <td data-label="Last done">{fmtDateTime(s.last_done_at)}</td>
-                <td data-label="Status">
-                  <Badge tone={tone[s.state]}>{s.state}</Badge> <span className="muted">{s.detail}</span>
+                <td data-label="Asset" className="wrap">{s.asset?.name}</td>
+                <td data-label="Task" className="wrap" style={{ minWidth: 200 }}>{s.task} <span className="muted">every {every(s)}</span></td>
+                <td data-label="Last done">
+                  {editable ? (
+                    <input type="date" style={{ minWidth: 130 }} disabled={busy === s.id} max={new Date().toLocaleDateString('en-CA')}
+                      value={s.last_done_at ? new Date(s.last_done_at).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }) : ''}
+                      onChange={(e) => setLast(s, e.target.value)} />
+                  ) : fmtDateTime(s.last_done_at)}
+                </td>
+                <td data-label="Next due">
+                  <Badge tone={tone[s.state]}>{label[s.state]}</Badge>{' '}
+                  {s.next_due ? fmtDate(s.next_due) : s.every_hours && s.last_done_at ? <span className="muted">by run-hours</span> : ''}
+                  {s.state !== 'unset' && s.detail && <div className="muted">{s.detail}</div>}
                 </td>
                 <td className="actions">
-                  {canMarkDone(role) && (
+                  {editable && (
                     <button className="link" disabled={busy === s.id} onClick={() => markDone(s)}>
-                      Mark done
+                      Done today
                     </button>
                   )}
                 </td>
@@ -128,6 +169,7 @@ function SchedulesTab() {
         { label: 'Task', key: 'task' },
         { label: 'Every hrs', key: 'every_hours' },
         { label: 'Every days', key: 'every_days' },
+        { label: 'Last done', render: (r) => (r.last_done_at ? fmtDate(r.last_done_at) : '-') },
       ]}
     />
   )
@@ -175,7 +217,7 @@ function LogTab() {
 
 export default function Maintenance() {
   const [tab, setTab] = useState('Due')
-  const tabs = { Due: DueTab, Log: LogTab, Schedules: SchedulesTab, Assets: AssetsTab }
+  const tabs = { Due: DueTab, Log: LogTab, Schedules: SchedulesTab, Assets: AssetsTab, 'Mill lining': Lining }
   const Tab = tabs[tab]
   return (
     <div>

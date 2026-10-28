@@ -76,3 +76,59 @@ const n = await run({ client, token: 't', chat: 'c', now, send: async (t, c, tex
 assert.equal(n, a.length - 1)
 assert.ok(!inserted.includes('hold:b1') && inserted.length === n)
 console.log('tools: all tests passed (' + a.length + ' alert types checked)')
+
+// --- admin-users edge function logic (fake service client)
+import { writeFile } from 'node:fs/promises'
+{
+  const src = await readFile(new URL('../supabase/functions/admin-users/index.ts', import.meta.url), 'utf8')
+  const tmp = (await mkdtemp(tmpdir() + '/fn-')) + '/fn.mjs'
+  await writeFile(tmp, src)
+  const { handle } = await import(tmp)
+  const profiles = { adm: { role: 'admin', active: true }, adm2: { role: 'admin', active: true }, sup: { role: 'supervisor', active: true } }
+  const calls = []
+  const admin = {
+    auth: {
+      getUser: async (t) => (t.startsWith('tok-') ? { data: { user: { id: t.slice(4) } }, error: null } : { data: null, error: { message: 'bad' } }),
+      admin: {
+        createUser: async (a) => { calls.push(['createUser', a]); return a.email.startsWith('taken') ? { data: null, error: { message: 'A user with this email address has already been registered' } } : { data: { user: { id: 'new1' } }, error: null } },
+        updateUserById: async (id, a) => { calls.push(['update', id, a]); return { error: null } },
+      },
+    },
+    from: (t) => {
+      let filters = {}
+      const q = {
+        select: () => q, eq: (k, v) => ((filters[k] = v), q), neq: (k, v) => ((filters['!' + k] = v), q),
+        maybeSingle: async () => ({ data: profiles[filters.id] ?? null }),
+        upsert: async (row) => { calls.push(['upsert', row]); return { error: null } },
+        update: (row) => ({ eq: async (k, v) => { calls.push(['profile-update', v, row]); return { error: null } } }),
+        then: (res) => res({ data: Object.entries(profiles).filter(([id, p]) => p.role === filters.role && p.active === filters.active && id !== filters['!id']).map(([id]) => ({ id })) }),
+      }
+      return q
+    },
+  }
+  const call = async (tok, body) => {
+    const r = await handle(new Request('http://x/', { method: 'POST', headers: tok ? { authorization: 'Bearer ' + tok } : {}, body: JSON.stringify(body) }), { admin })
+    return { status: r.status, body: await r.json() }
+  }
+  assert.equal((await call(null, { action: 'create' })).status, 401)
+  assert.equal((await call('tok-sup', { action: 'create' })).status, 403)
+  assert.equal((await call('tok-ghost', { action: 'create' })).status, 403)
+  assert.match((await call('tok-adm', { action: 'create', username: 'Ab', pin: '123456', role: 'operator' })).body.error, /Username/)
+  assert.match((await call('tok-adm', { action: 'create', username: 'gate1', pin: '123', role: 'operator' })).body.error, /PIN/)
+  assert.match((await call('tok-adm', { action: 'create', username: 'gate1', pin: '123456', role: 'pending' })).body.error, /role/)
+  assert.match((await call('tok-adm', { action: 'create', username: 'taken1', pin: '123456', role: 'operator' })).body.error, /already taken/)
+  const ok = await call('tok-adm', { action: 'create', username: 'Lab.Tech', full_name: 'Anita', pin: '654321', role: 'lab' })
+  assert.deepEqual(ok.body, { ok: true, id: 'new1', username: 'lab.tech' })
+  assert.ok(calls.some((c) => c[0] === 'createUser' && c[1].email === 'lab.tech@ops.local' && c[1].password === '654321' && c[1].email_confirm === true))
+  assert.ok(calls.some((c) => c[0] === 'upsert' && c[1].role === 'lab' && c[1].full_name === 'Anita'))
+  assert.equal((await call('tok-adm', { action: 'reset_pin', id: 'sup', pin: '12' })).body.error.includes('PIN'), true)
+  assert.equal((await call('tok-adm', { action: 'reset_pin', id: 'sup', pin: '999999' })).body.ok, true)
+  assert.match((await call('tok-adm', { action: 'set_active', id: 'adm', active: false })).body.error, /yourself/)
+  assert.equal((await call('tok-adm', { action: 'set_active', id: 'sup', active: false })).body.ok, true)
+  assert.ok(calls.some((c) => c[0] === 'update' && c[1] === 'sup' && c[2].ban_duration === '876000h'))
+  assert.equal((await call('tok-adm', { action: 'set_active', id: 'sup', active: true })).body.ok, true)
+  // blocking another admin is fine while a second active admin (the caller) exists
+  assert.equal((await call('tok-adm', { action: 'set_active', id: 'adm2', active: false })).body.ok, true)
+  assert.match((await call('tok-adm', { action: 'nope' })).body.error, /Unknown/)
+  console.log('admin-users function: all tests passed')
+}

@@ -1,35 +1,49 @@
+import { useState } from 'react'
 import { useRows, fmtKg, fmtDateTime, fmtNum, Badge } from '../lib.jsx'
 import { computeDue } from '../due.js'
 import { missingPapers, permitProblems } from '../papers.js'
 import { useSync } from '../offline.js'
 
-const startOfToday = () => {
+const PERIODS = [['today', 'Today'], ['7d', 'Last 7 days'], ['month', 'This month'], ['all', 'All time']]
+const sinceOf = (p) => {
   const d = new Date()
   d.setHours(0, 0, 0, 0)
-  return d.toISOString()
+  if (p === '7d') d.setDate(d.getDate() - 6)
+  if (p === 'month') d.setDate(1)
+  return p === 'all' ? null : d.toISOString()
 }
 
 export default function Dashboard() {
+  const [period, setPeriod] = useState('month')
+  const weighments = useRows('weighments', { select: 'id, type, net_kg, weighed_at, vehicle_no, gross_kg, tare_kg, doc_paths, supplier_invoice_no, permit_no, permit_qty_kg, permit_valid_until, invoice_no, eway_bill_no', order: 'weighed_at', limit: 1000 })
+  const stockRows = useRows('stock_summary')
+  const st = stockRows.rows[0]
   const orders = useRows('order_progress')
   const orderMeta = useRows('orders', { select: 'id, status, due_date, order_no' })
-  const weighments = useRows('weighments', { select: 'id, type, net_kg, weighed_at, vehicle_no, gross_kg, tare_kg, doc_paths, supplier_invoice_no, permit_no, permit_qty_kg, permit_valid_until, invoice_no, eway_bill_no', order: 'weighed_at', limit: 1000 })
-  const runs = useRows('mill_runs', { select: 'output_kg, feed_kg, started_at, kwh_used', order: 'started_at', limit: 1000 })
   const mills = useRows('mills')
   const hours = useRows('mill_total_hours')
   const schedules = useRows('maintenance_schedules')
   const assets = useRows('assets')
-  const lining = useRows('lining_inspections', { select: '*', order: 'inspected_at' })
-  const stockRows = useRows('stock_summary')
-  const st = stockRows.rows[0]
   const spares = useRows('spare_stock', { order: 'name', asc: true })
-  const held = useRows('batches', { select: 'id, batch_no, hold_reason, whiteness_pct', eq: ['qc_hold', true], order: 'created_at' })
-  const notes = useRows('shift_notes', { order: 'noted_at', limit: 1 })
+  const held = useRows('batches', { select: 'id, batch_no, hold_reason', eq: ['qc_hold', true], order: 'created_at' })
   const down = useRows('downtime', { select: 'id, reason, started_at, ended_at, mills(name)', order: 'started_at', limit: 50 })
   const licences = useRows('licences', { order: 'valid_until', asc: true })
   const leases = useRows('suppliers', { select: 'id, name, lease_valid_until' })
   const settings = useRows('plant_settings')
   const sync = useSync()
+
   const limitPct = Number(settings.rows.find((s) => s.key === 'permit_variance_pct')?.value ?? 3)
+  const since = sinceOf(period)
+  const sum = (type) => weighments.rows.filter((w) => w.type === type && (!since || w.weighed_at >= since)).reduce((a, w) => a + Number(w.net_kg || 0), 0)
+  const inbound = period === 'all' && st ? Number(st.inbound_kg) : sum('inbound')
+  const shipped = period === 'all' && st ? Number(st.dispatched_kg) : sum('dispatch')
+
+  const bulkOut = st ? Number(st.dispatched_kg) - Number(st.dispatched_bags_kg) : 0
+  const loose = st ? Number(st.produced_kg) - Number(st.packed_kg) - bulkOut : null
+  const packed = st ? Number(st.packed_in_stock_kg) : null
+  const yard = st ? Number(st.inbound_kg) - Number(st.fed_kg) : null
+  const finished = st ? (packed || 0) + Math.max(0, loose || 0) : null
+
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString()
   const recentW = weighments.rows.filter((w) => w.weighed_at >= monthAgo)
   const noPapers = recentW.filter((w) => missingPapers(w).length)
@@ -41,136 +55,52 @@ export default function Dashboard() {
   ]
   const stillDown = down.rows.filter((d) => !d.ended_at)
   const lowSpares = spares.rows.filter((i) => i.active && Number(i.reorder_level) > 0 && Number(i.on_hand) <= Number(i.reorder_level))
-  const note = notes.rows[0]
-
-  const today = startOfToday()
-  const sumToday = (type) =>
-    weighments.rows.filter((w) => w.type === type && w.weighed_at >= today).reduce((a, w) => a + Number(w.net_kg || 0), 0)
-  const outputToday = runs.rows.filter((r) => r.started_at >= today).reduce((a, r) => a + Number(r.output_kg || 0), 0)
-
-  const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString()
-  const wk = runs.rows.filter((r) => r.started_at >= weekAgo)
-  const wkFeed = wk.reduce((a, r) => a + Number(r.feed_kg || 0), 0)
-  const wkOut = wk.reduce((a, r) => a + Number(r.output_kg || 0), 0)
-  const kwhRuns = wk.filter((r) => r.kwh_used != null && r.output_kg > 0)
-  const kwhPerT = kwhRuns.length ? kwhRuns.reduce((a, r) => a + Number(r.kwh_used), 0) / (kwhRuns.reduce((a, r) => a + Number(r.output_kg), 0) / 1000) : null
-  const rawYard = st ? Number(st.inbound_kg) - Number(st.fed_kg) : null
-  const bulkDispatched = st ? Number(st.dispatched_kg) - Number(st.dispatched_bags_kg) : 0
-  const unpacked = st ? Number(st.produced_kg) - Number(st.packed_kg) - bulkDispatched : null
 
   const meta = Object.fromEntries(orderMeta.rows.map((o) => [o.id, o]))
   const active = orders.rows.filter((o) => !['dispatched', 'cancelled'].includes(meta[o.id]?.status))
   const pending = active.reduce((a, o) => a + Number(o.pending_kg || 0), 0)
-  const overdue = active.filter((o) => meta[o.id]?.due_date && new Date(meta[o.id].due_date) < new Date()).length
+  const overdueOrders = active.filter((o) => meta[o.id]?.due_date && new Date(meta[o.id].due_date) < new Date()).length
 
   const due = computeDue(schedules.rows, assets.rows, hours.rows)
   const dueNow = due.filter((d) => d.state === 'due')
-  const dueSoon = due.filter((d) => d.state === 'soon')
+  const noDate = due.filter((d) => d.state === 'unset').length
 
-  const latestLining = mills.rows.map((m) => ({
-    mill: m,
-    insp: lining.rows.find((l) => l.mill_id === m.id),
-    hrs: hours.rows.find((h) => h.mill_id === m.id)?.total_hours,
-  }))
-  const tone = { good: 'green', watch: 'amber', repair_soon: 'amber', relining_needed: 'red' }
+  const needs =
+    stillDown.length + held.rows.length + dueNow.length + lowSpares.length + noPapers.length + permitIssues.length + expiring.length + sync.items.length
 
   return (
     <div>
-      {(stillDown.length > 0 || held.rows.length > 0 || sync.items.length > 0) && (
-        <div className="notice">
-          {stillDown.map((d) => (<div key={d.id}><strong>{d.mills?.name} is down</strong> since {fmtDateTime(d.started_at)} ({d.reason.replace('_', ' ')})</div>))}
-          {held.rows.length > 0 && <div><strong>{held.rows.length} batch{held.rows.length > 1 ? 'es' : ''} on QC hold:</strong> {held.rows.map((b) => b.batch_no).join(', ')}</div>}
-          {sync.items.length > 0 && <div><strong>{sync.items.length} entr{sync.items.length > 1 ? 'ies' : 'y'} saved on this device</strong> and not yet sent.</div>}
-        </div>
-      )}
-      <h2>Today</h2>
-      <div className="stats">
-        <div className="stat"><div className="label">Quartz received</div><div className="value">{fmtKg(sumToday('inbound'))}</div></div>
-        <div className="stat"><div className="label">Fed to mills</div><div className="value">{fmtKg(sumToday('mill_feed'))}</div></div>
-        <div className="stat"><div className="label">Powder produced</div><div className="value">{fmtKg(outputToday)}</div></div>
-        <div className="stat"><div className="label">Dispatched</div><div className="value">{fmtKg(sumToday('dispatch'))}</div></div>
-      </div>
-
-      <h2>Stock now</h2>
-      <div className="stats">
-        <div className="stat"><div className="label">Raw quartz in yard</div><div className="value">{fmtKg(rawYard)}</div></div>
-        <div className="stat"><div className="label">Powder not yet packed</div><div className="value">{fmtKg(unpacked)}</div></div>
-        <div className="stat"><div className="label">Packed, ready to dispatch</div><div className="value">{fmtKg(st?.packed_in_stock_kg)}</div><div className="muted">{st?.bags_in_stock ?? 0} bags</div></div>
-      </div>
-
-      <h2>Last 7 days</h2>
-      <div className="stats">
-        <div className="stat"><div className="label">Yield (output / feed)</div><div className="value">{wkFeed > 0 ? ((wkOut / wkFeed) * 100).toFixed(1) + ' %' : '-'}</div></div>
-        <div className="stat"><div className="label">Powder produced</div><div className="value">{fmtKg(wkOut)}</div></div>
-        <div className="stat"><div className="label">Power per tonne</div><div className="value">{kwhPerT != null ? kwhPerT.toFixed(0) + ' kWh/t' : '-'}</div></div>
-      </div>
-
-      <h2>Orders</h2>
-      <div className="stats">
-        <div className="stat"><div className="label">Open orders</div><div className="value">{active.length}</div></div>
-        <div className="stat"><div className="label">Pending to dispatch</div><div className="value">{fmtKg(pending)}</div></div>
-        <div className="stat"><div className="label">Past due date</div><div className="value">{overdue}</div></div>
-      </div>
-
-      <h2>Maintenance</h2>
-      <div className="stats">
-        <div className="stat"><div className="label">Overdue tasks</div><div className="value">{dueNow.length}</div></div>
-        <div className="stat"><div className="label">Due soon</div><div className="value">{dueSoon.length}</div></div>
-      </div>
-      {dueNow.length > 0 && (
-        <div className="card">
-          {dueNow.slice(0, 8).map((d) => (
-            <div key={d.id} className="line">
-              <Badge tone="red">due</Badge> {d.asset?.name}: {d.task} <span className="muted">{d.detail}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {(lowSpares.length > 0 || note) && (
-        <>
-          <h2>Floor</h2>
-          <div className="two">
-            <div className="card">
-              <div className="tag">Spares to reorder</div>
-              {lowSpares.length === 0 ? <p className="muted">Nothing below its reorder level.</p> : lowSpares.slice(0, 8).map((i) => (
-                <div key={i.id} className="line"><Badge tone="red">low</Badge> {i.name} <span className="muted">{fmtNum(i.on_hand)} {i.unit} left</span></div>
-              ))}
-            </div>
-            <div className="card">
-              <div className="tag">Latest handover note</div>
-              {note ? <><p style={{ margin: '8px 0 4px' }}>{note.notes}</p><div className="muted">Shift {note.shift || '-'} - {fmtDateTime(note.noted_at)}</div></> : <p className="muted">No notes yet.</p>}
-            </div>
-          </div>
-        </>
-      )}
-
-      <h2>Compliance</h2>
-      <div className="stats">
-        <div className="stat"><div className="label">Loads with papers missing (30 days)</div><div className="value">{noPapers.length}</div></div>
-        <div className="stat"><div className="label">Permit checks needed</div><div className="value">{permitIssues.length}</div></div>
-        <div className="stat"><div className="label">Licences / leases expiring</div><div className="value">{expiring.length}</div></div>
-      </div>
-      {(noPapers.length > 0 || expiring.length > 0) && (
-        <div className="card">
-          {expiring.map((e) => <div key={e.id} className="line"><Badge tone="amber">expiring</Badge> {e.name} <span className="muted">valid until {e.date}</span></div>)}
-          {noPapers.slice(0, 6).map((w) => <div key={w.id} className="line"><Badge tone="red">papers</Badge> {w.type === 'inbound' ? 'Inbound' : 'Dispatch'} {w.vehicle_no || ''} {fmtDateTime(w.weighed_at)} <span className="muted">missing {missingPapers(w).join(', ')}</span></div>)}
-          {noPapers.length > 6 && <div className="muted">and {noPapers.length - 6} more on the Weighments page</div>}
-        </div>
-      )}
-
-      <h2>Resin lining</h2>
-      <div className="stats">
-        {latestLining.map(({ mill, insp, hrs }) => (
-          <div className="stat" key={mill.id}>
-            <div className="label">{mill.name} - {Number(hrs || 0).toFixed(0)} run-hrs</div>
-            <div className="value">
-              {insp ? <Badge tone={tone[insp.condition]}>{insp.condition.replace('_', ' ')}</Badge> : <span className="muted">no inspection yet</span>}
-            </div>
-            {insp && <div className="muted">min {insp.min_thickness_mm ?? '-'} mm on {insp.inspected_at}</div>}
-          </div>
+      <div className="tabs">
+        {PERIODS.map(([k, l]) => (
+          <button key={k} className={period === k ? 'on' : ''} onClick={() => setPeriod(k)}>{l}</button>
         ))}
       </div>
+      <div className="stats big">
+        <div className="stat"><div className="label">Raw material (inbound quartz)</div><div className="value">{fmtKg(inbound)}</div><div className="muted">{fmtKg(yard)} still in the yard</div></div>
+        <div className="stat"><div className="label">Shipped out</div><div className="value">{fmtKg(shipped)}</div><div className="muted">{PERIODS.find((p) => p[0] === period)[1].toLowerCase()}</div></div>
+        <div className="stat"><div className="label">In stock (powder)</div><div className="value">{fmtKg(finished)}</div><div className="muted">{st?.bags_in_stock ?? 0} bags = {fmtKg(packed)} packed, {fmtKg(Math.max(0, loose || 0))} loose</div></div>
+      </div>
+
+      <h2>Needs attention</h2>
+      {needs === 0 && <div className="empty">Nothing needs attention right now.</div>}
+      {needs > 0 && (
+        <div className="card">
+          {sync.items.length > 0 && <div className="line"><Badge tone="amber">offline</Badge> {sync.items.length} entr{sync.items.length > 1 ? 'ies' : 'y'} saved on this device and not yet sent</div>}
+          {stillDown.map((d) => <div key={d.id} className="line"><Badge tone="red">down</Badge> {d.mills?.name} since {fmtDateTime(d.started_at)} <span className="muted">({d.reason.replace('_', ' ')})</span></div>)}
+          {held.rows.map((b) => <div key={b.id} className="line"><Badge tone="red">QC hold</Badge> {b.batch_no} <span className="muted">{b.hold_reason || ''}</span></div>)}
+          {dueNow.slice(0, 8).map((d) => <div key={d.id} className="line"><Badge tone="red">overdue</Badge> {d.asset?.name}: {d.task} <span className="muted">{d.detail}</span></div>)}
+          {dueNow.length > 8 && <div className="muted">and {dueNow.length - 8} more under Maintenance</div>}
+          {lowSpares.slice(0, 8).map((i) => <div key={i.id} className="line"><Badge tone="amber">reorder</Badge> {i.name} <span className="muted">{fmtNum(i.on_hand)} {i.unit} left</span></div>)}
+          {expiring.map((e) => <div key={e.id} className="line"><Badge tone="amber">expiring</Badge> {e.name} <span className="muted">valid until {e.date}</span></div>)}
+          {permitIssues.slice(0, 4).map((w) => <div key={w.id} className="line"><Badge tone="amber">permit</Badge> {w.vehicle_no || 'Inbound'} {fmtDateTime(w.weighed_at)} <span className="muted">{permitProblems(w, limitPct)[0]}</span></div>)}
+          {noPapers.slice(0, 6).map((w) => <div key={w.id} className="line"><Badge tone="red">papers</Badge> {w.type === 'inbound' ? 'Inbound' : 'Dispatch'} {w.vehicle_no || ''} {fmtDateTime(w.weighed_at)} <span className="muted">missing {missingPapers(w).join(', ')}</span></div>)}
+          {noPapers.length > 6 && <div className="muted">and {noPapers.length - 6} more loads under Shipments</div>}
+        </div>
+      )}
+      <p className="muted">
+        {active.length} open order{active.length === 1 ? '' : 's'}, {fmtKg(pending)} still to ship{overdueOrders ? `, ${overdueOrders} past due date` : ''}.
+        {noDate > 0 && ` ${noDate} maintenance tasks are waiting for a last-done date.`}
+      </p>
     </div>
   )
 }

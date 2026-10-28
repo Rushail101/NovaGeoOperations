@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../supabase.js'
 import { useAuth } from '../auth.jsx'
 import { canPack, can } from '../perms.js'
-import { useRows, fmtKg, fmtDate, fmtDateTime, gradeLabel, Badge } from '../lib.jsx'
+import { useRows, fmtKg, fmtDate, fmtDateTime, gradeLabel, certUrl, bagNoFromScan, Badge } from '../lib.jsx'
 import { openPrintWindow, printLabels } from '../print.js'
 import { OutboxList } from '../Outbox.jsx'
 import { enqueue, takeBagNumbers, indexAddBags, ensureBagBlock, bagNumbersLeft, isOnline, noteNetwork, isNetworkError } from '../offline.js'
@@ -17,12 +17,13 @@ const labelOf = (b) => ({
   weight_kg: b.weight_kg,
   batch_no: b.batches?.batch_no,
   grade: gradeLabel(b.batches?.grades, b.batches?.grade_meshes),
+  cert_url: certUrl(b.bag_no, b.batches?.cert_token),
   packed_on: fmtDate(b.packed_at),
 })
 
 function PackForm({ onDone }) {
   const batches = useRows('batches', {
-    select: 'id, batch_no, grade_id, mesh_id, qc_hold, sio2_pct, fe2o3_pct, moisture_pct, whiteness_pct, grades(name), grade_meshes(mesh)',
+    select: 'id, batch_no, cert_token, grade_id, mesh_id, qc_hold, sio2_pct, fe2o3_pct, moisture_pct, whiteness_pct, grades(name), grade_meshes(mesh)',
     order: 'created_at',
     limit: 100,
   })
@@ -120,7 +121,7 @@ function Trace() {
   const [msg, setMsg] = useState(null)
 
   async function find(n) {
-    const bagNo = (n ?? no).trim().toUpperCase()
+    const bagNo = bagNoFromScan(n ?? no)
     if (!bagNo) return
     setNo(bagNo)
     setMsg(null)
@@ -164,10 +165,27 @@ function Trace() {
   )
 }
 
+function BagStock() {
+  const st = useRows('stock_summary').rows[0]
+  const [out, setOut] = useState(null)
+  useEffect(() => {
+    supabase.from('bags').select('id', { count: 'exact', head: true }).eq('status', 'dispatched').then(({ count }) => setOut(count))
+  }, [])
+  const bulk = st ? Number(st.dispatched_kg) - Number(st.dispatched_bags_kg) : 0
+  const loose = st ? Number(st.produced_kg) - Number(st.packed_kg) - bulk : null
+  return (
+    <div className="stats">
+      <div className="stat"><div className="label">Bags in stock</div><div className="value">{st?.bags_in_stock ?? '-'}</div><div className="muted">{fmtKg(st?.packed_in_stock_kg)}</div></div>
+      <div className="stat"><div className="label">Bags shipped out</div><div className="value">{out ?? '-'}</div><div className="muted">{fmtKg(st?.dispatched_bags_kg)}</div></div>
+      <div className="stat"><div className="label">Powder not yet packed</div><div className="value">{fmtKg(loose)}</div><div className="muted">goes down as bags are made</div></div>
+    </div>
+  )
+}
+
 export default function Bags() {
   const { role } = useAuth()
   const { rows, loading, error, reload } = useRows('bags', {
-    select: '*, batches(batch_no, grades(name), grade_meshes(mesh)), orders(order_no), packer:profiles!packed_by(full_name, username)',
+    select: '*, batches(batch_no, cert_token, grades(name), grade_meshes(mesh)), orders(order_no), packer:profiles!packed_by(full_name, username)',
     order: 'packed_at',
     limit: 500,
   })
@@ -194,6 +212,7 @@ export default function Bags() {
   return (
     <section>
       <div className="head"><h2>Bags</h2></div>
+      <BagStock />
       {canPack(role) && <PackForm onDone={reload} />}
       <OutboxList filter={(i) => i.fn === 'create_bags_numbered'} title="Bags packed offline, waiting to send" />
       <Trace />
