@@ -8,6 +8,7 @@ import PhotoField from './PhotoField.jsx'
 import Modal from './Modal.jsx'
 import { OutboxList } from './Outbox.jsx'
 
+import { toLocalInput } from './fmt.js'
 export * from './fmt.js'
 export { Modal }
 
