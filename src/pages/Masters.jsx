@@ -3,6 +3,7 @@ import { DataPage, useRows, opts, fmtDate, fmtNum, Expiry } from '../lib.jsx'
 import { useAuth } from '../auth.jsx'
 import { PhotoLink } from '../PhotoField.jsx'
 import { SPEC_FIELDS, specFormFields } from '../spec.js'
+import FinanceSync from './FinanceSync.jsx'
 
 const limitsText = (r) => SPEC_FIELDS.filter((f) => r[f.col] != null).map((f) => `${f.short} ${f.dir === 'min' ? '>=' : '<='} ${r[f.col]}`).join(', ') || '-'
 const SETTING_LABELS = { permit_variance_pct: 'Flag an inbound load when its net weight differs from the permit quantity by more than (%)' }
@@ -27,8 +28,8 @@ function build({ grades }) {
     },
     Customers: {
       table: 'customers',
-      columns: [{ label: 'Name', key: 'name' }, { label: 'Phone', key: 'phone' }, { label: 'Address', key: 'address' }],
-      fields: [{ name: 'name', label: 'Name', required: true }, { name: 'phone', label: 'Phone' }, { name: 'address', label: 'Address', type: 'textarea' }],
+      columns: [{ label: 'Name', key: 'name' }, { label: 'GSTIN', key: 'gstin' }, { label: 'Phone', key: 'phone' }, { label: 'Address', key: 'address' }],
+      fields: [{ name: 'name', label: 'Name', required: true }, { name: 'gstin', label: 'GSTIN' }, { name: 'phone', label: 'Phone' }, { name: 'address', label: 'Address', type: 'textarea' }],
     },
     Suppliers: {
       table: 'suppliers',
@@ -50,6 +51,7 @@ function build({ grades }) {
         { name: 'doc_paths', label: 'Lease copy / other papers', type: 'docs', folder: 'suppliers' },
       ],
     },
+    'Finance link': { special: FinanceSync },
     Grades: {
       table: 'grades',
       order: 'name',
@@ -145,7 +147,7 @@ export default function Masters() {
           <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{k}</button>
         ))}
       </div>
-      <DataPage
+      {c.special ? <c.special /> : <DataPage
         key={tab + grades.rows.length}
         title={tab}
         table={c.table}
@@ -159,7 +161,7 @@ export default function Masters() {
         canDelete={c.canDelete}
         idField={c.idField}
         extra={c.note ? <p className="muted">{c.note}</p> : undefined}
-      />
+      />}
     </div>
   )
 }

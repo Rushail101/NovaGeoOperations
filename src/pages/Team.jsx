@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { UserPlus, KeyRound, HardDriveUpload } from 'lucide-react'
-import { supabase, isolatedClient } from '../supabase.js'
-import { toEmail } from '../auth.jsx'
+import { supabase } from '../supabase.js'
 import { uuid } from '../offline.js'
 import { useAuth } from '../auth.jsx'
 import { useRows, Modal, Form, Badge, toast, fmtDate } from '../lib.jsx'
@@ -45,17 +44,8 @@ function AddUser({ onDone }) {
     try {
       await adminCall({ action: 'create', username: v.username, full_name: v.full_name, role: v.role, pin: v.pin })
     } catch (e) {
-      if (!e.notSetUp) throw e
-      // No edge function deployed: create the account directly, then give it its role.
-      const uname = v.username.trim().toLowerCase()
-      if (!/^[a-z0-9._-]{3,30}$/.test(uname)) throw new Error('Username: 3 to 30 lowercase letters, numbers, dots or dashes')
-      if (v.pin.length < 6) throw new Error('PIN must be at least 6 characters')
-      const { data, error } = await isolatedClient().auth.signUp({ email: toEmail(uname), password: v.pin })
-      if (error) throw new Error(/registered|already/i.test(error.message) ? 'That username is already taken' : error.message)
-      const id = data.user?.id
-      if (!id) throw new Error('The account could not be created. Check that "Confirm email" is switched off in Supabase Authentication settings.')
-      const up = await supabase.from('profiles').update({ role: v.role, full_name: v.full_name || null }).eq('id', id)
-      if (up.error) throw new Error('Account created, but giving it a role failed: ' + up.error.message + '. Set the role in the list below.')
+      if (e.notSetUp) throw new Error('Could not reach the admin-users function. In Supabase > Edge Functions open admin-users, switch "Verify JWT" OFF (the function checks the admin itself), and redeploy. If the function does not exist yet, create it from supabase/functions/admin-users/index.ts.')
+      throw e
     }
     toast(`Added ${v.username.toLowerCase()}`)
     onDone()

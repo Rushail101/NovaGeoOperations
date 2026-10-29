@@ -132,3 +132,38 @@ import { writeFile } from 'node:fs/promises'
   assert.match((await call('tok-adm', { action: 'nope' })).body.error, /Unknown/)
   console.log('admin-users function: all tests passed')
 }
+
+// --- finance-link edge function logic (fake clients, no network)
+{
+  const src = await readFile(new URL('../supabase/functions/finance-link/index.ts', import.meta.url), 'utf8')
+  const tmp = (await mkdtemp(tmpdir() + '/fl-')) + '/fn.mjs'
+  await writeFile(tmp, src)
+  const { handle } = await import(tmp)
+  const profiles = { ok: { role: 'weighbridge', active: true }, pend: { role: 'pending', active: true }, off: { role: 'admin', active: false } }
+  const admin = {
+    auth: { getUser: async (t) => (t.startsWith('tok-') ? { data: { user: { id: t.slice(4) } }, error: null } : { data: null, error: { message: 'bad' } }) },
+    from: () => { let id; const q = { select: () => q, eq: (k, v) => ((id = v), q), maybeSingle: async () => ({ data: profiles[id] ?? null }) }; return q },
+  }
+  const urls = []
+  const fetchFn = async (url, init) => { urls.push([url, init.headers.Authorization]); return { ok: !url.includes('/fail'), status: 500, json: async () => [{ id: 1, name: 'Khammam Quarry' }] } }
+  const env = { FINANCE_URL: 'https://fin.supabase.co/', FINANCE_KEY: 'svc' }
+  const call = async (tok, body, e = env, method = 'POST') => {
+    const res = await handle(new Request('http://x', { method, headers: { authorization: tok ? 'Bearer ' + tok : '' }, body: method === 'POST' ? JSON.stringify(body) : undefined }), { admin, env: e, fetchFn })
+    return { status: res.status, body: await res.json().catch(() => null) }
+  }
+  assert.equal((await call('', { action: 'suppliers' })).status, 401)
+  assert.equal((await call('tok-zzz', { action: 'suppliers' })).status, 403)
+  assert.equal((await call('tok-pend', { action: 'suppliers' })).status, 403)
+  assert.equal((await call('tok-off', { action: 'suppliers' })).status, 403)
+  assert.equal((await call('tok-ok', { action: 'suppliers' }, {})).body.error, 'not_configured')
+  const s = await call('tok-ok', { action: 'suppliers' })
+  assert.equal(s.body.rows[0].name, 'Khammam Quarry')
+  assert.ok(urls[0][0].startsWith('https://fin.supabase.co/rest/v1/suppliers?') && urls[0][0].includes('select=id%2Cname'))
+  assert.equal(urls[0][1], 'Bearer svc')
+  const p = await call('tok-ok', { action: 'purchases', supplier_id: 7, days: 30 })
+  assert.ok(urls[1][0].includes('supplier_id=eq.7') && urls[1][0].includes('p_date=gte.'))
+  assert.equal((await call('tok-ok', { action: 'purchases', supplier_id: '7; drop table' })).body.error, 'Bad supplier')
+  assert.equal((await call('tok-ok', { action: 'expenses' })).body.error, 'Unknown action') // finance money tables are not exposed
+  assert.equal((await call('tok-ok', { action: 'status' })).body.ok, true)
+  console.log('finance-link function: all tests passed')
+}

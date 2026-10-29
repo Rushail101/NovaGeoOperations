@@ -6,6 +6,7 @@ import { PhotoLink } from '../PhotoField.jsx'
 import { AttachFiles, InboundPapersForm } from '../Papers.jsx'
 import { missingPapers, permitProblems, permitVariance, normVehicle } from '../papers.js'
 import { can } from '../perms.js'
+import { useFinance } from '../financeLink.js'
 
 const ALL_TYPES = [
   { value: 'inbound', label: 'Inbound quartz' },
@@ -25,6 +26,13 @@ export default function Weighments({ only, title = 'Weighments' }) {
   const vehicles = useRows('vehicles', { order: 'vehicle_no', asc: true, limit: 1000 })
   const settings = useRows('plant_settings')
   const orders = useRows('orders', { select: 'id, order_no, status, customers(name)', order: 'created_at' })
+
+  const fin = useFinance({ action: 'purchases', days: 400 })
+  const linked = useRows('weighments', { select: 'id, finance_purchase_id, net_kg', order: 'weighed_at', limit: 1000 })
+  const finOn = !fin.error && fin.rows.length > 0
+  const purchaseOf = (id) => fin.rows.find((p) => String(p.id) === String(id))
+  const pLabel = (p) => `${p.invoice_no || p.po_no || '#' + p.id} - ${fmtDate(p.p_date)} - ${p.quantity_mt} t`
+  const receivedKg = (pid, skip) => linked.rows.filter((w) => String(w.finance_purchase_id) === String(pid) && w.id !== skip).reduce((a, w) => a + Number(w.net_kg || 0), 0)
 
   const limit = Number(settings.rows.find((s) => s.key === 'permit_variance_pct')?.value ?? 3)
   const openOrders = orders.rows.filter((o) => !['dispatched', 'cancelled'].includes(o.status))
@@ -53,8 +61,24 @@ export default function Weighments({ only, title = 'Weighments' }) {
     },
     { name: 'gross_kg', label: 'Gross (kg)', type: 'number', required: true },
     { name: 'tare_kg', label: 'Tare (kg)', type: 'number', required: true },
-    { name: 'supplier_id', label: 'Supplier', type: 'select', options: opts(suppliers.rows), showIf: (v) => v.type === 'inbound', hintFn: leaseNote },
-    { name: 'lot_no', label: 'Lot no.', required: true, hint: 'Used to trace a batch back to the quartz truck.', showIf: (v) => v.type === 'inbound' },
+    { name: 'supplier_id', label: 'Supplier', type: 'select', options: opts(suppliers.rows), showIf: (v) => v.type === 'inbound', hintFn: leaseNote, onPick: () => ({ finance_purchase_id: '' }) },
+    {
+      name: 'finance_purchase_id', label: 'Finance purchase / bill (optional)', type: 'select', showIf: (v) => v.type === 'inbound' && finOn,
+      optionsFor: (v) => {
+        const fid = suppliers.rows.find((x) => x.id === v.supplier_id)?.finance_id
+        return fid == null ? [] : fin.rows.filter((p) => Number(p.supplier_id) === Number(fid)).map((p) => ({ value: String(p.id), label: pLabel(p) }))
+      },
+      hintFn: (v) => {
+        const sup = suppliers.rows.find((x) => x.id === v.supplier_id)
+        if (!v.finance_purchase_id) return sup && sup.finance_id == null ? 'This supplier is not linked to finance yet (Masters > Finance link), so its bills cannot be picked.' : null
+        const p = purchaseOf(v.finance_purchase_id)
+        if (!p) return null
+        const billed = Number(p.quantity_mt) * 1000
+        const total = receivedKg(p.id, v.__id) + (net(v) || 0)
+        const pct = billed > 0 ? ((total - billed) / billed) * 100 : null
+        return `Billed ${fmtKg(billed)}. With this load received ${fmtKg(total)}${pct != null ? ` (${pct > 0 ? '+' : ''}${pct.toFixed(1)}% vs bill)` : ''}.`
+      },
+    },
     { name: 'supplier_invoice_no', label: 'Supplier invoice no.', showIf: (v) => v.type === 'inbound' },
     { name: 'supplier_invoice_date', label: 'Invoice date', type: 'date', showIf: (v) => v.type === 'inbound' },
     { name: 'permit_no', label: 'Transit permit no.', showIf: (v) => v.type === 'inbound' },
@@ -86,7 +110,43 @@ export default function Weighments({ only, title = 'Weighments' }) {
     await supabase.from('vehicles').insert({ vehicle_no: no, default_tare_kg: row.tare_kg })
   }
 
-  const extra = only ? null : (
+  const checks = (() => {
+    const g = {}
+    for (const w of linked.rows) if (w.finance_purchase_id != null) (g[w.finance_purchase_id] ||= []).push(w)
+    return Object.entries(g).map(([id, ws]) => {
+      const p = purchaseOf(id)
+      if (!p) return null
+      const billed = Number(p.quantity_mt) * 1000
+      const got = ws.reduce((a, w) => a + Number(w.net_kg || 0), 0)
+      const pct = billed > 0 ? ((got - billed) / billed) * 100 : null
+      const sup = suppliers.rows.find((x) => Number(x.finance_id) === Number(p.supplier_id))
+      return { id, p, sup, billed, got, pct, loads: ws.length }
+    }).filter(Boolean).sort((a, b) => Math.abs(b.pct ?? 0) - Math.abs(a.pct ?? 0))
+  })()
+  const checkPanel = checks.length > 0 && (
+    <div className="card" style={{ marginBottom: 12 }}>
+      <div className="tag">Purchase check (weighbridge vs finance bill)</div>
+      <div className="tablewrap">
+        <table className="stack">
+          <thead><tr><th>Bill</th><th>Supplier</th><th>Billed</th><th>Received</th><th>Loads</th><th>Difference</th></tr></thead>
+          <tbody>
+            {checks.map((c) => (
+              <tr key={c.id}>
+                <td data-label="Bill">{c.p.invoice_no || c.p.po_no || '#' + c.p.id} <span className="muted">{fmtDate(c.p.p_date)}</span></td>
+                <td data-label="Supplier">{c.sup?.name || '-'}</td>
+                <td data-label="Billed">{fmtKg(c.billed)}</td>
+                <td data-label="Received">{fmtKg(c.got)}</td>
+                <td data-label="Loads">{c.loads}</td>
+                <td data-label="Difference">{c.pct == null ? '-' : <Badge tone={Math.abs(c.pct) > limit ? 'red' : 'green'}>{c.pct > 0 ? '+' : ''}{c.pct.toFixed(1)}%</Badge>}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <small className="muted">Flagged red when the difference is more than {limit}% (the same limit as permits, under Masters > Settings). A bill split across several trucks is added up.</small>
+    </div>
+  )
+  const extra = only ? checkPanel || null : (
     <div className="tabs">
       {[{ value: '', label: 'All' }, ...ALL_TYPES].map((t) => (
         <button key={t.value} className={filter === t.value ? 'on' : ''} onClick={() => setFilter(t.value)}>{t.label}</button>

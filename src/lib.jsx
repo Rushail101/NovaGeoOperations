@@ -264,13 +264,14 @@ export function DataPage({
     editing === 'new'
       ? defaults
       : editing
-      ? Object.fromEntries(
-          fields.map((f) => {
+      ? Object.fromEntries([
+          ...fields.map((f) => {
             let x = editing[f.name]
             if (f.type === 'datetime-local' && x) x = toLocalInput(x)
             return [f.name, x]
-          })
-        )
+          }),
+          ['__id', editing[idField]], // lets a field's hint ignore the record being edited
+        ])
       : {}
 
   const filtered = q || from || to

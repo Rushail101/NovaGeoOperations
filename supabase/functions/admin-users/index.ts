@@ -2,7 +2,7 @@
 // Supabase Edge Function "admin-users": lets an admin of the app add people, reset PINs and block/unblock sign-in.
 // Creating accounts needs the service key, which must never be in the browser, so it lives here.
 // Deploy: Supabase dashboard > Edge Functions > Create a new function named admin-users > paste this file > Deploy.
-// (Leave "Verify JWT" on.) The function reads SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY from its own environment.
+// (Switch "Verify JWT" OFF: the function checks the caller itself.) The function reads SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY from its own environment.
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',

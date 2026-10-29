@@ -10,6 +10,7 @@ Operations-only ERP for the ball mill plant: orders, weighments, mill runs, batc
 5. `migration_v5a_lab_role.sql` (adds the lab role). **Run this alone, as its own query**, then:
 6. `migration_v5.sql` (lab reports, public bag certificate)
 7. `migration_v6.sql` (QC by bag, 1 kg pouches, standard maintenance checklist, upload storage re-check)
+8. `migration_v7.sql` (links to the finance ERP)
 
 Each migration can be re-run safely. Then in Authentication > Providers > Email turn **off** "Confirm email". The first person to sign up becomes **admin**; give the admin a long password (12+ characters), not a short PIN.
 
@@ -55,7 +56,7 @@ Uploads need signal; the numbers and weights can be saved offline and files atta
 
 ## 10. Users tab (Team)
 Admin > Team: add people (username, name, role, PIN), change roles, reset a PIN, block or unblock. This needs one edge function:
-1. Supabase dashboard > Edge Functions > create a function named `admin-users`, paste `supabase/functions/admin-users/index.ts`, deploy with **Verify JWT on**.
+1. Supabase dashboard > Edge Functions > create a function named `admin-users`, paste `supabase/functions/admin-users/index.ts`, deploy with **Verify JWT OFF** (browsers cannot pass the check on the preflight request; the function verifies the admin itself).
 2. Nothing else to configure: it uses the project's own service key. Only active admins can call it.
 Until it is deployed, the page still lets you change roles of people who signed up themselves; Add person, Reset PIN and Block will say the function is not set up.
 
@@ -73,4 +74,13 @@ migration_v6.sql loads about 50 standard checks (mills, motors, gearboxes, beari
 
 ## 14. If files do not save with a weighment
 Team > Check file uploads tests the storage bucket step by step and says what to fix. Usual fix: run migration_v4.sql and migration_v6.sql in the Supabase SQL editor, and check Storage shows a "photos" bucket.
-If the `admin-users` function is not deployed, Add person and Block still work (the account is created directly); only Reset PIN needs the function.
+Add person and Reset PIN need the `admin-users` function (Supabase rejects fake emails on normal sign-up). If Add person shows a CORS error, open the function in Supabase and switch Verify JWT off, then redeploy. Block/Unblock work without it.
+
+## 15. Finance link (read-only)
+Lets the ops app read suppliers, customers and purchases from the finance ERP's Supabase project. It never writes to finance, and only these three tables are readable.
+1. In the **ops** Supabase project: Edge Functions > create `finance-link`, paste `supabase/functions/finance-link/index.ts`, deploy with **Verify JWT OFF**.
+2. Edge Functions > Secrets: add `FINANCE_URL` (finance project URL) and `FINANCE_KEY` (finance project's service_role key). The key stays on the server.
+3. Run `migration_v7.sql` in the ops SQL editor.
+4. Masters > Finance link: link or import suppliers and customers (matched by name, then remembered by finance ID).
+5. On an inbound weighment, pick the supplier, then the finance purchase/bill. The form shows billed vs received tonnes, and Shipments > Inbound shows a Purchase check table (red when the difference is over the permit limit, default 3%). A bill split over several trucks is added up.
+Sales invoices are not in the finance database yet, so the invoice number at dispatch is still typed. When finance gets a sales-invoice table, an invoice picker can use the same function.
