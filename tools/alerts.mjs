@@ -71,6 +71,19 @@ export function buildAlerts(d, now = new Date()) {
   for (const l of d.licences || []) expiry('lic', l.id, l.name, l.valid_until)
   for (const s of d.leases || []) expiry('lease', s.id, `${s.name} mining lease`, s.lease_valid_until)
 
+  // v8 compliance: returns falling due, overdue worker medicals, serious incidents not reported
+  for (const i of d.statutory || []) {
+    if (!i.active || !i.next_due) continue
+    const left = Math.ceil((new Date(i.next_due + 'T23:59:59+05:30').getTime() - now.getTime()) / 86400000)
+    const stage = left < 0 ? 'overdue' : left <= 3 ? '3' : left <= (i.remind_days || 15) ? 'remind' : null
+    if (stage) out.push({ key: `stat:${i.id}:${i.next_due}:${stage}`, text: left < 0 ? `OVERDUE: ${i.title} (was due ${i.next_due})` : `Due in ${left} day${left === 1 ? '' : 's'}: ${i.title} (${i.next_due})` })
+  }
+  const medDue = (d.medicals || []).filter((h) => !h.left_on && h.next_exam_due && h.next_exam_due < today)
+  if (medDue.length) out.push({ key: `med:${today.slice(0, 7)}:${medDue.length}`, text: `Worker medicals overdue (silica exposure): ${medDue.map((h) => h.name).join(', ')}` })
+  for (const x of d.incidents || []) {
+    if (['serious', 'fatal'].includes(x.severity) && !x.reported_to_authority) out.push({ key: `inc:${x.id}`, text: `Serious incident on ${istDate(x.occurred_at)} not yet reported to the authority: ${x.description || x.kind}` })
+  }
+
   // Morning summary, once, from 8am IST
   if (istHour(now) >= 8) {
     const y = istDate(new Date(now.getTime() - 86400000))
@@ -119,7 +132,14 @@ async function load(c, now) {
     get(c.from('suppliers').select('id, name, lease_valid_until')),
     get(c.from('plant_settings').select('key, value')),
   ])
-  return { data: { mills, schedules, assets, hours, orders, spares, held, logs, lining, downtime, weighments, runs, licences, leases, settings }, sent: new Set(sent.map((s) => s.key)) }
+  // Tables from migration_v8.sql; missing tables are skipped so older databases keep working
+  const opt = async (q) => { const { data, error } = await q; return error ? [] : data || [] }
+  const [statutory, medicals, incidents] = await Promise.all([
+    opt(c.from('statutory_items').select('id, title, next_due, remind_days, active')),
+    opt(c.from('worker_health_status').select('id, name, next_exam_due, left_on')),
+    opt(c.from('incidents').select('id, kind, severity, occurred_at, description, reported_to_authority').gte('occurred_at', new Date(now.getTime() - 60 * 86400000).toISOString())),
+  ])
+  return { data: { mills, schedules, assets, hours, orders, spares, held, logs, lining, downtime, weighments, runs, licences, leases, settings, statutory, medicals, incidents }, sent: new Set(sent.map((s) => s.key)) }
 }
 
 export async function sendTelegram(token, chat, text, fetchFn = fetch) {

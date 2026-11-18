@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { useRows, fmtKg, fmtDateTime, fmtNum, Badge } from '../lib.jsx'
+import { useRows, fmtKg, fmtDate, fmtDateTime, fmtNum, Badge } from '../lib.jsx'
+import { mineralLedger } from '../mineral.js'
 import { computeDue } from '../due.js'
 import { missingPapers, permitProblems } from '../papers.js'
 import { useSync } from '../offline.js'
@@ -31,6 +32,11 @@ export default function Dashboard() {
   const leases = useRows('suppliers', { select: 'id, name, lease_valid_until' })
   const settings = useRows('plant_settings')
   const sync = useSync()
+  // v8 compliance registers (empty lists until migration_v8.sql is run)
+  const daily = useRows('mineral_daily', { limit: 20000 })
+  const statutory = useRows('statutory_items', { order: 'next_due', asc: true })
+  const medStatus = useRows('worker_health_status', { select: 'id, name, next_exam_due, left_on' })
+  const incidents = useRows('incidents', { select: 'id, kind, severity, occurred_at, reported_to_authority, closed', order: 'occurred_at', limit: 100 })
 
   const limitPct = Number(settings.rows.find((s) => s.key === 'permit_variance_pct')?.value ?? 3)
   const since = sinceOf(period)
@@ -41,7 +47,9 @@ export default function Dashboard() {
   const bulkOut = st ? Number(st.dispatched_kg) - Number(st.dispatched_bags_kg) : 0
   const loose = st ? Number(st.produced_kg) - Number(st.packed_kg) - bulkOut : null
   const packed = st ? Number(st.packed_in_stock_kg) : null
-  const yard = st ? Number(st.inbound_kg) - Number(st.fed_kg) : null
+  const ledger = daily.rows.length ? mineralLedger(daily.rows, '0000-01-01', '9999-12-31').closing : null
+  const yard = ledger ? ledger.raw : st ? Number(st.inbound_kg) - Number(st.fed_kg) : null
+  const washedHeap = ledger ? ledger.washed : null
   const finished = st ? (packed || 0) + Math.max(0, loose || 0) : null
 
   const monthAgo = new Date(Date.now() - 30 * 86400000).toISOString()
@@ -65,7 +73,11 @@ export default function Dashboard() {
   const dueNow = due.filter((d) => d.state === 'due')
   const noDate = due.filter((d) => d.state === 'unset').length
 
-  const needs =
+  const overdueReturns = statutory.rows.filter((i) => i.active && i.next_due < new Date().toLocaleDateString('en-CA'))
+  const medOverdue = medStatus.rows.filter((h) => !h.left_on && h.next_exam_due && h.next_exam_due < new Date().toLocaleDateString('en-CA'))
+  const unreported = incidents.rows.filter((i) => ['serious', 'fatal'].includes(i.severity) && !i.reported_to_authority)
+  const complianceCount = overdueReturns.length + (medOverdue.length ? 1 : 0) + unreported.length
+  const needs = complianceCount +
     stillDown.length + held.rows.length + dueNow.length + lowSpares.length + noPapers.length + permitIssues.length + expiring.length + sync.items.length
 
   return (
@@ -76,7 +88,7 @@ export default function Dashboard() {
         ))}
       </div>
       <div className="stats big">
-        <div className="stat"><div className="label">Raw material (inbound quartz)</div><div className="value">{fmtKg(inbound)}</div><div className="muted">{fmtKg(yard)} still in the yard</div></div>
+        <div className="stat"><div className="label">Raw material (inbound quartz)</div><div className="value">{fmtKg(inbound)}</div><div className="muted">{fmtKg(yard)} raw in the yard{washedHeap != null ? `, ${fmtKg(washedHeap)} washed` : ''}</div></div>
         <div className="stat"><div className="label">Shipped out</div><div className="value">{fmtKg(shipped)}</div><div className="muted">{PERIODS.find((p) => p[0] === period)[1].toLowerCase()}</div></div>
         <div className="stat"><div className="label">In stock (powder)</div><div className="value">{fmtKg(finished)}</div><div className="muted">{st?.bags_in_stock ?? 0} bags = {fmtKg(packed)} packed, {fmtKg(Math.max(0, loose || 0))} loose</div></div>
       </div>
@@ -91,6 +103,9 @@ export default function Dashboard() {
           {dueNow.slice(0, 8).map((d) => <div key={d.id} className="line"><Badge tone="red">overdue</Badge> {d.asset?.name}: {d.task} <span className="muted">{d.detail}</span></div>)}
           {dueNow.length > 8 && <div className="muted">and {dueNow.length - 8} more under Maintenance</div>}
           {lowSpares.slice(0, 8).map((i) => <div key={i.id} className="line"><Badge tone="amber">reorder</Badge> {i.name} <span className="muted">{fmtNum(i.on_hand)} {i.unit} left</span></div>)}
+          {overdueReturns.map((i) => <div key={i.id} className="line"><Badge tone="red">return</Badge> {i.title} <span className="muted">was due {fmtDate(i.next_due)} · Compliance › Returns</span></div>)}
+          {medOverdue.length > 0 && <div className="line"><Badge tone="red">medical</Badge> {medOverdue.length} worker medical{medOverdue.length > 1 ? 's' : ''} overdue <span className="muted">Compliance › Workers & health</span></div>}
+          {unreported.map((i) => <div key={i.id} className="line"><Badge tone="red">incident</Badge> Serious {i.kind.replace('_', ' ')} on {fmtDateTime(i.occurred_at)} not reported to the authority</div>)}
           {expiring.map((e) => <div key={e.id} className="line"><Badge tone="amber">expiring</Badge> {e.name} <span className="muted">valid until {e.date}</span></div>)}
           {permitIssues.slice(0, 4).map((w) => <div key={w.id} className="line"><Badge tone="amber">permit</Badge> {w.vehicle_no || 'Inbound'} {fmtDateTime(w.weighed_at)} <span className="muted">{permitProblems(w, limitPct)[0]}</span></div>)}
           {noPapers.slice(0, 6).map((w) => <div key={w.id} className="line"><Badge tone="red">papers</Badge> {w.type === 'inbound' ? 'Inbound' : 'Dispatch'} {w.vehicle_no || ''} {fmtDateTime(w.weighed_at)} <span className="muted">missing {missingPapers(w).join(', ')}</span></div>)}

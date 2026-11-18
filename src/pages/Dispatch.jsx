@@ -20,10 +20,11 @@ function DocsForm({ row, onDone }) {
     { name: 'eway_bill_no', label: 'E-way bill no. (12 digits)' },
     { name: 'transporter', label: 'Transporter' },
     { name: 'lr_no', label: 'LR no.' },
+    { name: 'transit_pass_no', label: 'Mineral transit pass no.', hint: 'From the Mines & Geology e-permit system' },
   ]
   async function submit(v) {
     if (!ewayOk(v.eway_bill_no) && !confirm('An e-way bill number is normally 12 digits. Save anyway?')) return
-    const r = await callRpc('set_dispatch_docs', { p_id: row.id, p_invoice: v.invoice_no || null, p_eway: v.eway_bill_no || null, p_transporter: v.transporter || null, p_lr: v.lr_no || null }, `Invoice details for ${row.vehicle_no || 'dispatch'}`)
+    const r = await callRpc('set_dispatch_docs', { p_id: row.id, p_invoice: v.invoice_no || null, p_eway: v.eway_bill_no || null, p_transporter: v.transporter || null, p_lr: v.lr_no || null, ...(v.transit_pass_no ? { p_transit: v.transit_pass_no } : {}) }, `Invoice details for ${row.vehicle_no || 'dispatch'}`)
     if (r.queued) toast('No connection. Saved on this device and will be sent automatically.')
     onDone()
   }

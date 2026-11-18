@@ -6,7 +6,12 @@ import { SPEC_FIELDS, specFormFields } from '../spec.js'
 import FinanceSync from './FinanceSync.jsx'
 
 const limitsText = (r) => SPEC_FIELDS.filter((f) => r[f.col] != null).map((f) => `${f.short} ${f.dir === 'min' ? '>=' : '<='} ${r[f.col]}`).join(', ') || '-'
-const SETTING_LABELS = { permit_variance_pct: 'Flag an inbound load when its net weight differs from the permit quantity by more than (%)' }
+const SETTING_LABELS = {
+  permit_variance_pct: 'Flag an inbound load when its net weight differs from the permit quantity by more than (%)',
+  washing_tracked_from: 'Mill feed comes from the washed heap from this date (YYYY-MM-DD); before it, straight from the raw yard',
+  mineral_state: 'State whose Mineral Dealer rules apply (shown on the mineral account)',
+  mdl_no: 'Mineral Dealer Licence number (printed on the mineral account)',
+}
 
 function build({ grades }) {
   return {

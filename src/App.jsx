@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import {
   LayoutDashboard, ClipboardList, FlaskConical, Package, Truck, Wrench,
-  Database, Users, ShieldCheck, Menu, X, Sun, Moon, KeyRound, LogOut, Mountain, Boxes, NotebookPen, Download,
+  Database, Users, ShieldCheck, Menu, Scale, X, Sun, Moon, KeyRound, LogOut, Mountain, Boxes, NotebookPen, Download,
 } from 'lucide-react'
 import { supabase, configured } from './supabase.js'
 import { Toaster } from './lib.jsx'
@@ -20,6 +20,7 @@ import PublicCertificate from './pages/PublicCertificate.jsx'
 import Masters from './pages/Masters.jsx'
 import Team from './pages/Team.jsx'
 import Audit from './pages/Audit.jsx'
+import Compliance from './pages/Compliance.jsx'
 
 // Who sees which tab. Admin, supervisor and viewer see everything except the admin-only pages.
 const seen = (...extra) => (r) => ['admin', 'supervisor', 'viewer', ...extra].includes(r)
@@ -36,6 +37,7 @@ const GROUPS = [
       { name: 'Plant Logs', C: PlantLogs, I: NotebookPen, show: seen('operator', 'maintenance', 'weighbridge') },
       { name: 'Maintenance', C: Maintenance, I: Wrench, show: seen('maintenance', 'operator') },
       { name: 'Spares', C: Spares, I: Boxes, show: seen('maintenance', 'operator') },
+      { name: 'Compliance', C: Compliance, I: Scale, show: seen('operator', 'maintenance', 'weighbridge') },
     ],
   },
   {

@@ -295,3 +295,25 @@ input:focus, select:focus, textarea:focus { border-color: var(--accent-ink); out
 .stats.big { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); margin-top: 10px; }
 .stats.big .stat .value { font-size: 34px; }
 @media (max-width: 899px) { .stats.big { grid-template-columns: 1fr; } .stats.big .stat .value { font-size: 30px; } }
+
+/* ---------- v8: compliance ---------- */
+.checkrow { display: flex; align-items: flex-start; gap: 12px; padding: 12px 4px; border-top: 1px solid var(--line); }
+.checkrow:first-of-type { border-top: 0; }
+.checkrow svg { flex-shrink: 0; margin-top: 1px; }
+.checkrow.ok svg { color: var(--green); }
+.checkrow.warn svg { color: var(--amber); }
+.checkrow.bad svg { color: var(--red); }
+.checkrow.bad .checktitle { color: var(--red); }
+.checktitle { font-weight: 600; }
+.checkdetail { font-size: 12.5px; margin-top: 3px; line-height: 1.5; }
+.notice.bad { background: color-mix(in srgb, var(--red) 14%, transparent); border-color: color-mix(in srgb, var(--red) 45%, transparent); }
+.small { font-size: 12px; }
+table.ledger { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table.ledger th { font-family: var(--mono); font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); padding: 7px 8px; border-bottom: 1px solid var(--line); text-align: center; white-space: nowrap; }
+table.ledger thead tr:first-child th { border-bottom: 1px solid var(--line); color: var(--ink); }
+table.ledger td { padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.ledger td.num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+table.ledger tfoot td { font-weight: 700; border-top: 2px solid var(--line); border-bottom: 0; }
+table.ledger tr.neg td { background: color-mix(in srgb, var(--red) 10%, transparent); }
+table.ledger td:nth-child(6), table.ledger td:nth-child(9), table.ledger td:nth-child(12) { font-weight: 600; }
+section > .stats { margin-top: 12px; }

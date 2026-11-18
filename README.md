@@ -11,6 +11,7 @@ Operations-only ERP for the ball mill plant: orders, weighments, mill runs, batc
 6. `migration_v5.sql` (lab reports, public bag certificate)
 7. `migration_v6.sql` (QC by bag, 1 kg pouches, standard maintenance checklist, upload storage re-check)
 8. `migration_v7.sql` (links to the finance ERP)
+9. `migration_v8.sql` (washing plant, mineral stock account, worker health, monitoring, incidents, statutory returns)
 
 Each migration can be re-run safely. Then in Authentication > Providers > Email turn **off** "Confirm email". The first person to sign up becomes **admin**; give the admin a long password (12+ characters), not a short PIN.
 
@@ -83,4 +84,38 @@ Lets the ops app read suppliers, customers and purchases from the finance ERP's 
 3. Run `migration_v7.sql` in the ops SQL editor.
 4. Masters > Finance link: link or import suppliers and customers (matched by name, then remembered by finance ID).
 5. On an inbound weighment, pick the supplier, then the finance purchase/bill. The form shows billed vs received tonnes, and Shipments > Inbound shows a Purchase check table (red when the difference is over the permit limit, default 3%). A bill split over several trucks is added up.
-Sales invoices are not in the finance database yet, so the invoice number at dispatch is still typed. When finance gets a sales-invoice table, an invoice picker can use the same function.
+The finance app now has a `customers` table (finance script `002_compliance.sql`), so importing customers works once that script has run there. Sales invoices also live in finance now (`sales_invoices`); the invoice number at dispatch is still typed here, and a picker can be added to this function later.
+
+## 16. Washing plant and compliance (v8)
+Run `migration_v8.sql`. Then:
+- **Plant Logs › Washing plant**: one entry per shift with raw quartz fed, washed quartz out, rejects (mud, clay,
+  fines to the pond), water used and recycled, power. Shows recovery %, water and power per tonne. Works offline.
+  Out more than in (with 5% allowance) is refused.
+- **Masters › Settings**: set the Mineral Dealer Licence number and the date from which mill feed is taken from
+  the washed heap (`washing_tracked_from`; before it, mill feed counts against the raw yard).
+- **Compliance** (new page):
+  - *Overview*: one checklist of everything an inspector or auditor looks at (licences, returns due, document
+    gaps on loads, negative stock, worker medicals, respirators, monitoring above limits, unreported incidents).
+  - *Mineral account*: the daily account the Mineral Dealer rules ask for (received, fed to washing / mills,
+    washed out, powder made, despatched, opening and closing stock of raw, washed and powder, rejects), with
+    gaps flagged (no permit, over-permit loads, dispatch without invoice / transit pass / e-way bill).
+    Download as PDF (with the receipt and despatch lists) or CSV for the AD Mines return.
+  - *Returns & dates*: recurring duties (mineral return, Form V environment statement, hazardous waste return,
+    dust monitoring, factory annual return, weighbridge stamping, CEIG, fire, mock drill), pre-filled with a starter
+    list. "Mark done" records the acknowledgement and moves the due date forward. Licences are listed too; a
+    checklist of standard licences is added to Masters › Licences (fill the numbers and dates).
+  - *Workers & health*: silica-exposure register. Each worker's area, exposure, respirator issue, training and
+    medical schedule; medical exams (X-ray, lung function, fit / unfit, silicosis suspected). **Medical details
+    are visible only to admins and supervisors**; viewers see only who is due.
+  - *Monitoring*: workplace dust and free silica, stack, ambient air, noise, wash water, groundwater, with limits;
+    results above the limit are flagged.
+  - *Incidents*: injuries, near misses, dangerous occurrences, with root cause and corrective action. Every role
+    can report (also offline); serious ones not reported to the authority are flagged.
+- **Dispatch** documents now take the mineral transit pass number.
+- The Telegram alerts also warn about returns falling due, overdue medicals and unreported serious incidents.
+- Dashboard shows raw and washed stock separately and the compliance items that need action.
+- Tests: `node tools/test-mineral.mjs` checks the stock account maths and the document checks.
+
+The forms, due dates and frequencies in the starter list follow the usual Telangana / Andhra Pradesh practice;
+confirm them with your AD Mines office, pollution board consent order and Factories inspector, and edit them under
+Compliance › Returns & dates.

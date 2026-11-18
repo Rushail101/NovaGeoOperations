@@ -143,7 +143,7 @@ export default function Weighments({ only, title = 'Weighments' }) {
           </tbody>
         </table>
       </div>
-      <small className="muted">Flagged red when the difference is more than {limit}% (the same limit as permits, under Masters > Settings). A bill split across several trucks is added up.</small>
+      <small className="muted">Flagged red when the difference is more than {limit}% (the same limit as permits, under Masters › Settings). A bill split across several trucks is added up.</small>
     </div>
   )
   const extra = only ? checkPanel || null : (

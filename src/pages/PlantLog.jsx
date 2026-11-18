@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { DataPage, useRows, opts, fmtDateTime, fmtDate, fmtKg, fmtNum, toLocalInput, todayIso, Badge } from '../lib.jsx'
+import { mineralLedger } from '../mineral.js'
 
 const SHIFTS = ['A', 'B', 'C'].map((x) => ({ value: x, label: x }))
 export const REASONS = [
@@ -113,6 +114,7 @@ function DustTab() {
 
 const LOCS = [
   { value: 'raw_yard', label: 'Raw quartz in yard' },
+  { value: 'washed_yard', label: 'Washed quartz heap' },
   { value: 'unpacked_powder', label: 'Powder not yet packed' },
   { value: 'packed_bags', label: 'Packed bags in stock' },
 ]
@@ -120,9 +122,13 @@ const locLabel = Object.fromEntries(LOCS.map((l) => [l.value, l.label]))
 
 function CountTab() {
   const st = useRows('stock_summary').rows[0]
+  // With the washing plant tracked (migration v8), raw and washed stock come from the mineral account
+  const daily = useRows('mineral_daily', { limit: 20000 })
+  const led = daily.rows.length ? mineralLedger(daily.rows, '0000-01-01', '9999-12-31').closing : null
   const sys = st
     ? {
-        raw_yard: Number(st.inbound_kg) - Number(st.fed_kg),
+        raw_yard: led ? led.raw : Number(st.inbound_kg) - Number(st.fed_kg),
+        washed_yard: led ? led.washed : 0,
         unpacked_powder: Number(st.produced_kg) - Number(st.packed_kg) - (Number(st.dispatched_kg) - Number(st.dispatched_bags_kg)),
         packed_bags: Number(st.packed_in_stock_kg),
       }
@@ -161,7 +167,64 @@ function CountTab() {
   )
 }
 
-export { DowntimeTab, NotesTab, DustTab, CountTab }
+// Washing plant: raw quartz in, washed quartz out, rejects to the pond, water and power used.
+function WashingTab() {
+  const suppliers = useRows('suppliers', { order: 'name', asc: true })
+  const runs = useRows('washing_runs', { select: 'run_date, feed_kg, washed_kg, rejects_kg, water_used_kl, water_recycled_kl, kwh, hours', order: 'run_date', limit: 1000 })
+  const month = todayIso().slice(0, 7)
+  const m = runs.rows.filter((r) => r.run_date?.startsWith(month))
+  const sum = (k) => m.reduce((a, r) => a + Number(r[k] || 0), 0)
+  const feed = sum('feed_kg'), washed = sum('washed_kg'), water = sum('water_used_kl'), recycled = sum('water_recycled_kl'), kwh = sum('kwh')
+  const pct = (a, b) => (b ? `${fmtNum((a / b) * 100, 1)}%` : '-')
+  return (
+    <DataPage
+      title="Washing plant"
+      table="washing_runs"
+      select="*, suppliers(name)"
+      order="run_date"
+      offline
+      dateField="run_date"
+      offlineLabel={(p) => `Washing: ${p.feed_kg} kg in`}
+      defaults={{ run_date: todayIso(), rejects_kg: '0' }}
+      extra={
+        <div className="stats">
+          <div className="stat"><div className="label">Washed this month</div><div className="value">{fmtNum(washed / 1000, 1)} t</div><div className="muted">from {fmtNum(feed / 1000, 1)} t raw</div></div>
+          <div className="stat"><div className="label">Recovery</div><div className="value">{pct(washed, feed)}</div><div className="muted">washed ÷ raw fed</div></div>
+          <div className="stat"><div className="label">Water per tonne</div><div className="value">{feed ? fmtNum(water / (feed / 1000), 2) : '-'} kL</div><div className="muted">{pct(recycled, water)} recycled</div></div>
+          <div className="stat"><div className="label">Power per tonne</div><div className="value">{feed ? fmtNum(kwh / (feed / 1000), 1) : '-'} kWh</div></div>
+        </div>
+      }
+      fields={[
+        { name: 'run_date', label: 'Date', type: 'date', required: true },
+        { name: 'shift', label: 'Shift', type: 'select', options: SHIFTS },
+        { name: 'hours', label: 'Hours run', type: 'number' },
+        { name: 'feed_kg', label: 'Raw quartz fed (kg)', type: 'number', required: true },
+        { name: 'washed_kg', label: 'Washed quartz out (kg)', type: 'number', required: true,
+          hintFn: (v) => (Number(v.feed_kg) > 0 && Number(v.washed_kg) + Number(v.rejects_kg || 0) > Number(v.feed_kg) * 1.05 ? 'Out is more than in. Check the weights.' : '') },
+        { name: 'rejects_kg', label: 'Rejects / mud / fines (kg)', type: 'number', hint: 'Goes to the settling pond or dump.' },
+        { name: 'water_used_kl', label: 'Water used (kL)', type: 'number' },
+        { name: 'water_recycled_kl', label: 'Of which recycled (kL)', type: 'number' },
+        { name: 'kwh', label: 'Power used (kWh)', type: 'number' },
+        { name: 'supplier_id', label: 'Raw material from', type: 'select', options: opts(suppliers.rows) },
+        { name: 'lot_no', label: 'Lot no.' },
+        { name: 'operator', label: 'Operator' },
+        { name: 'notes', label: 'Notes', type: 'textarea' },
+      ]}
+      columns={[
+        { label: 'Date', render: (r) => fmtDate(r.run_date) },
+        { label: 'Shift', key: 'shift' },
+        { label: 'Raw in', render: (r) => fmtKg(r.feed_kg) },
+        { label: 'Washed out', render: (r) => fmtKg(r.washed_kg) },
+        { label: 'Rejects', render: (r) => fmtKg(r.rejects_kg) },
+        { label: 'Recovery', render: (r) => <Badge tone={r.recovery_pct >= 80 ? 'green' : r.recovery_pct >= 65 ? 'amber' : 'red'}>{fmtNum(r.recovery_pct, 1)}%</Badge> },
+        { label: 'Water', render: (r) => (r.water_used_kl != null ? `${fmtNum(r.water_used_kl)} kL` : '-') },
+        { label: 'From', render: (r) => r.suppliers?.name || '-' },
+      ]}
+    />
+  )
+}
+
+export { DowntimeTab, NotesTab, DustTab, CountTab, WashingTab }
 
 export default function PlantLog() {
   const [tab, setTab] = useState('Downtime')

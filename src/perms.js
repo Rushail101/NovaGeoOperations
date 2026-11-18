@@ -41,6 +41,12 @@ const PERMS = {
   plant_settings: { insert: [], update: [A] },
   lab_reports: { insert: [A, S, 'lab'], update: [A, S, 'lab'] },
   profiles: { insert: [], update: [A] },
+  washing_runs: { insert: [A, S, O], update: [A, S, O] },
+  workers: { insert: [A, S], update: [A, S] },
+  worker_medicals: { insert: [A, S], update: [A, S] },
+  env_monitoring: { insert: [A, S], update: [A, S] },
+  incidents: { insert: [A, S, O, M, W], update: [A, S] },
+  statutory_items: { insert: [A, S], update: [A, S] },
 }
 
 export function can(role, table, action) {
